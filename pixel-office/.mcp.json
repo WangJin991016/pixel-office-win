@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "pixel-office": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/server/mcp.mjs"]
+    }
+  }
+}

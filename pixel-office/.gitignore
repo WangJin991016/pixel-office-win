@@ -1,0 +1,11 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+*.log
+*.pid
+__pycache__/
+*.py[cod]
+.venv/
+venv/

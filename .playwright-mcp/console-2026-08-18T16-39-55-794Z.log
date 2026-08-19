@@ -1,0 +1,4 @@
+[  640222ms] [ERROR] Failed to load resource: net::ERR_INCOMPLETE_CHUNKED_ENCODING @ http://localhost:8791/events:0
+[  643225ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8791/events:0
+[  646228ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8791/events:0
+[  649229ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:8791/events:0

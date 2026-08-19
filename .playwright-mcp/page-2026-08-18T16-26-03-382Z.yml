@@ -1,0 +1,24 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading [level=1] [ref=e5]:
+      - text: Pixel Office
+      - emphasis [ref=e6]: 子智能体办公室
+    - generic [ref=e7]:
+      - generic [ref=e8]: 连接断开
+      - generic [ref=e9]: 演示会话 · demo
+      - generic [ref=e10]: 0 名员工
+  - main [ref=e11]:
+    - generic [ref=e14]:
+      - strong [ref=e15]: 等待子智能体开工…
+      - paragraph [ref=e16]:
+        - text: 在 Codex 中运行一个会启用 subagents 的任务，员工就会自动进来上班。 想先看看效果？用
+        - code [ref=e17]: node server/server.mjs --demo
+        - text: 启动演示模式。
+    - generic [ref=e18]:
+      - strong [ref=e19]: 连不上桥接服务器
+      - paragraph [ref=e20]:
+        - text: 请确认
+        - code [ref=e21]: node server/server.mjs
+        - text: 正在运行，然后刷新本页。
+      - button "重新连接" [ref=e22] [cursor=pointer]
+  - contentinfo [ref=e13]: 点击员工头顶的云朵气泡，查看该子智能体的完整输出

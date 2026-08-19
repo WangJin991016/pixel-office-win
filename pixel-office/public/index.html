@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pixel Office · 子智能体办公室</title>
+<link rel="stylesheet" href="/css/office.css">
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <h1>Pixel Office <em>子智能体办公室</em></h1>
+    </div>
+    <div class="status">
+      <span id="conn-pill" class="pill pill-warn">连接中…</span>
+      <span id="session-label" class="session-label"></span>
+      <span id="agent-count" class="pill pill-dim">0 名员工</span>
+    </div>
+  </header>
+
+  <main id="stage-wrap">
+    <canvas id="stage" width="1280" height="720"></canvas>
+
+    <div id="idle-hint" class="overlay hidden">
+      <div class="card">
+        <strong>等待子智能体开工…</strong>
+        <p>在 Codex 中运行一个会启用 subagents 的任务，员工就会自动进来上班。<br>
+        想先看看效果？用 <code>node server/server.mjs --demo</code> 启动演示模式。</p>
+      </div>
+    </div>
+
+    <div id="offline-hint" class="overlay hidden">
+      <div class="card">
+        <strong>连不上桥接服务器</strong>
+        <p>请确认 <code>node server/server.mjs</code> 正在运行，然后刷新本页。</p>
+        <button id="reload-btn" type="button">重新连接</button>
+      </div>
+    </div>
+  </main>
+
+  <aside id="drawer" class="hidden">
+    <div class="drawer-head">
+      <span id="drawer-name">—</span>
+      <span id="drawer-state" class="pill">—</span>
+      <button id="drawer-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <div id="drawer-body" class="drawer-body">
+      <section class="drawer-section" aria-labelledby="drawer-task-title">
+        <h2 id="drawer-task-title">主要任务</h2>
+        <p id="drawer-task" class="drawer-task">—</p>
+      </section>
+      <section class="drawer-section drawer-progress-section" aria-labelledby="drawer-progress-title">
+        <div class="drawer-section-head">
+          <h2 id="drawer-progress-title">工作进展</h2>
+          <span id="drawer-progress-count">0 条</span>
+        </div>
+        <div id="drawer-progress" class="drawer-progress" aria-live="polite"></div>
+      </section>
+    </div>
+  </aside>
+
+  <footer id="hint">点击员工，查看主要任务与完整工作进展</footer>
+
+  <script src="/js/sprites.js"></script>
+  <script src="/js/bubbles.js"></script>
+  <script src="/js/scene.js"></script>
+  <script src="/js/actors.js"></script>
+  <script src="/js/main.js"></script>
+</body>
+</html>

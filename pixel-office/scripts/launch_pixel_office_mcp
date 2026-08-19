@@ -1,0 +1,31 @@
+#!/bin/sh
+# Locate a Node runtime and exec the pixel-office MCP server with it.
+# (MCP hosts may launch us with a minimal PATH.)
+set -eu
+
+if [ "$#" -lt 1 ]; then
+  printf '%s\n' 'pixel-office MCP: missing server path argument.' >&2
+  exit 64
+fi
+
+PATH="${PATH:-/usr/bin:/bin}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$HOME/.nvm/versions/node/current/bin"
+export PATH
+
+for candidate in \
+  "$HOME/.nvm/versions/node/v25.8.1/bin/node" \
+  /opt/homebrew/bin/node \
+  /usr/local/bin/node
+do
+  if [ -x "$candidate" ]; then
+    exec "$candidate" "$@"
+  fi
+done
+
+if node_path=$(command -v node 2>/dev/null); then
+  case "$node_path" in
+    /*) exec "$node_path" "$@" ;;
+  esac
+fi
+
+printf '%s\n' 'pixel-office MCP: could not find a Node runtime.' >&2
+exit 127

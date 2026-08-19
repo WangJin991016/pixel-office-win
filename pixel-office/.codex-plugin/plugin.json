@@ -1,0 +1,36 @@
+{
+  "name": "pixel-office",
+  "version": "0.1.0+codex.20260819070854",
+  "description": "Watch Codex subagents work in a live Stardew-style pixel office: desks for subtasks, cloud speech bubbles with their streaming output, deliveries to the boss, and a lounge corner.",
+  "author": {
+    "name": "frankshane"
+  },
+  "license": "MIT",
+  "keywords": [
+    "subagents",
+    "pixel art",
+    "office",
+    "visualization",
+    "real-time",
+    "stardew"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Pixel Office",
+    "shortDescription": "\u770b\u5b50\u667a\u80fd\u4f53\u5728\u50cf\u7d20\u529e\u516c\u5ba4\u91cc\u6253\u5de5",
+    "longDescription": "A live pixel-art office that mirrors Codex subagents in real time: each subagent gets a desk, streams its output in a cloud speech bubble, walks its result over to the boss when done, then rests in the lounge corner. The boss randomly shouts motivational(?) slogans.",
+    "developerName": "frankshane",
+    "category": "Fun",
+    "capabilities": [
+      "Interactive",
+      "Read"
+    ],
+    "brandColor": "#d08a3e",
+    "defaultPrompt": [
+      "\u6253\u5f00\u50cf\u7d20\u529e\u516c\u5ba4\uff0c\u6211\u8981\u770b subagents \u5e72\u6d3b",
+      "\u7528\u6f14\u793a\u6a21\u5f0f\u770b\u770b pixel office \u957f\u4ec0\u4e48\u6837"
+    ],
+    "screenshots": []
+  }
+}

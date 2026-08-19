@@ -1,0 +1,11 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - heading [level=1] [ref=e5]:
+      - text: Pixel Office
+      - emphasis [ref=e6]: 子智能体办公室
+    - generic [ref=e7]:
+      - generic [ref=e8]: 演示模式
+      - generic [ref=e9]: 演示会话 · demo
+      - generic [ref=e10]: 5 名员工
+  - main [ref=e11]
+  - contentinfo [ref=e13]: 点击员工头顶的云朵气泡，查看该子智能体的完整输出

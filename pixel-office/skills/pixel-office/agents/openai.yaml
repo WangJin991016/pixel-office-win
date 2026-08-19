@@ -1,0 +1,5 @@
+interface:
+  display_name: "Pixel Office"
+  short_description: "看子智能体在像素办公室里打工"
+policy:
+  allow_implicit_invocation: true

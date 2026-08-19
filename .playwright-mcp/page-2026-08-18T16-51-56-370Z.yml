@@ -1,0 +1,16 @@
+- generic [active] [ref=f5e1]:
+  - banner [ref=f5e2]:
+    - heading [level=1] [ref=f5e5]:
+      - text: Pixel Office
+      - emphasis [ref=f5e6]: 子智能体办公室
+    - generic [ref=f5e7]:
+      - generic [ref=f5e8]: 演示模式
+      - generic [ref=f5e9]: 0 名员工
+  - main [ref=f5e10]:
+    - generic [ref=f5e12]:
+      - strong [ref=f5e13]: 等待子智能体开工…
+      - paragraph [ref=f5e14]:
+        - text: 在 Codex 中运行一个会启用 subagents 的任务，员工就会自动进来上班。 想先看看效果？用
+        - code [ref=f5e15]: node server/server.mjs --demo
+        - text: 启动演示模式。
+  - contentinfo [ref=f5e16]: 点击员工头顶的云朵气泡，查看该子智能体的完整输出
