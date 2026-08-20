@@ -10,7 +10,15 @@
   const scene = new Scene();
   // debug hook (harmless in production)
   window.__officeDebug = () => [...office.workers.values()].map(w => ({
+    id: w.id,
     name: w.name, state: w.state, x: Math.round(w.x), y: Math.round(w.y),
+    deskIdx: w.deskIdx, waitingForDesk: !w.desk && ["spawning", "working", "recalled"].includes(w.state),
+    deskVariant: deskVariantName(w.deskIdx),
+    appearance: { ...w.appearance }, appearanceVersion: w.appearanceVersion,
+    appearanceGeneration: w.appearanceGeneration, terminalAt: w.terminalAt, leaveAt: w.leaveAt,
+    waitArea: w.waitArea, waitZone: w.waitSpot?.zone || null,
+    waitKind: w.waitSpot?.kind || null,
+    windowPhase: scene.windowPhase, windowBlend: scene.windowBlend,
     wp: w.waypoints.length, queue: [...deliveryQueue],
     zzz: w.zzz.map(z => ({ x: Math.round(z.x), y: Math.round(z.y), t: Math.round(z.t) })),
     visible: w.bubble.visible, head: w.headPos(), hitBounds: w.hitBounds(),
@@ -34,7 +42,8 @@
   const STATE_LABEL = {
     spawning: "报到中", working: "工作中", delivering: "交付中",
     resting: "休息中", failed: "出错了", failed_idle: "待返工",
-    recalled: "被召回", completed: "交付中",
+    recalled: "被召回", completed: "交付中", waiting: "等待下班",
+    clockout_walk: "下班中", clockout_fade: "离场中", offstage: "已离场",
   };
 
   function setConn(cls, text) {
@@ -43,6 +52,8 @@
   }
 
   function refreshChrome(snapshot) {
+    // Archived records are history only; the visible worker Map is the active
+    // count shown in the office chrome.
     const n = office.workers.size;
     agentCount.textContent = `${n} 名员工`;
     if (snapshot) {
@@ -58,24 +69,49 @@
 
   function applySnapshot(s) {
     const selectedId = drawerAgentId;
+    const wallNow = Date.now();
+    const animNow = performance.now();
     office.reset();
-    for (const a of s.agents || []) {
-      const w = office.spawn(a.id, a.name);
+    const agents = s.agents || [];
+    const isTerminal = (a) => a.terminalAt != null
+      || ["completed", "failed", "failed_idle", "resting"].includes(a.state);
+    const isVisibleTerminal = (a) => {
+      const leaveAt = toWallTime(a.leaveAt);
+      return isTerminal(a) && leaveAt != null && leaveAt > wallNow;
+    };
+
+    // Active workers claim the fixed desks first. Terminal workers never
+    // claim desks because their desk was released when the terminal state was
+    // entered on the server.
+    for (const a of agents.filter(agent => !isTerminal(agent))) {
+      const w = office.spawn(a.id, a.name, a.state === "working", a);
       w.setText(a.text || "");
       w.setTask(a.task || a.name);
       w.setHistory(a.history || []);
-      if (a.state === "working") w.state = "working";
-      else if (a.state === "failed") { w.state = "failed_idle"; w.bubble.mood = "error"; }
-      else if (a.state === "completed" || a.state === "resting") {
-        // join mid-story: place him in the rest corner
-        w.state = "resting";
-        const s = claimRestSpot(w.id);
-        w.restSpot = s;
-        w.x = s.kind === "chaise" ? s.x - 46 : s.x;
-        w.y = s.y;
-        w.waypoints = [];
-        w.bubble.mood = "dim";
+      if (a.state === "working") {
+        if (w.desk) {
+          w.state = "working";
+          w.x = w.desk.x - 12;
+          w.y = w.desk.y + 4;
+          w.waypoints = [];
+        } else {
+          // Active overflow workers walk to the door queue and remain promotable.
+          w.state = "spawning";
+        }
       }
+    }
+    office.promoteWaiting();
+
+    for (const a of agents.filter(isTerminal)) {
+      if (!isVisibleTerminal(a)) {
+        office.archiveSnapshot(a);
+        continue;
+      }
+      const w = office.spawn(a.id, a.name, false, a);
+      w.setText(a.text || "");
+      w.setTask(a.task || a.name);
+      w.setHistory(a.history || []);
+      w.hydrateTerminal(a.state, wallNow, animNow, a);
     }
     refreshChrome(s);
     const selected = selectedId && office.get(selectedId);
@@ -97,53 +133,59 @@
     es.onmessage = (e) => {
       let msg;
       try { msg = JSON.parse(e.data); } catch { return; }
-      const now = performance.now();
+      const animNow = performance.now();
+      const wallNow = Date.now();
       switch (msg.type) {
         case "snapshot":
           gotSnapshot = true;
           applySnapshot(msg);
           break;
         case "spawn": {
-          const w = office.spawn(msg.id, msg.name);
+          const w = office.spawn(msg.id, msg.name, true, msg);
           w.setTask(msg.task || msg.name);
           w.setText("开始干活…");
           refreshChrome();
           break;
         }
         case "task": {
-          const w = office.get(msg.id);
-          if (w) {
-            w.setTask(msg.task);
-            if (drawerAgentId === w.id) renderDrawer(w);
-          }
+          office.updateRecord(msg.id, msg);
+          const visible = office.get(msg.id);
+          if (visible && drawerAgentId === msg.id) renderDrawer(visible);
+          else if (!visible && drawerAgentId === msg.id) closeDrawer();
           break;
         }
         case "progress": {
-          const w = office.get(msg.id);
-          if (w && w.appendProgress(msg.text) && drawerAgentId === w.id) {
-            renderProgress(w);
+          const record = office.getRecord(msg.id);
+          if (record) {
+            const visible = office.get(msg.id);
+            if (visible) visible.appendProgress(msg.text);
+            else office.updateRecord(msg.id, { progress: msg.text });
+            if (visible && drawerAgentId === msg.id) renderProgress(visible);
+            else if (!visible && drawerAgentId === msg.id) closeDrawer();
           }
           break;
         }
         case "output": {
-          const w = office.get(msg.id);
-          if (w) w.setText(msg.text);
+          office.updateRecord(msg.id, msg);
+          if (!office.get(msg.id) && drawerAgentId === msg.id) closeDrawer();
           break;
         }
         case "state": {
           const w = office.get(msg.id);
-          if (!w) break;
           if (msg.state === "completed") {
-            if (msg.summary) w.setText(msg.summary);
-            w.onCompleted(now);
+            if (w && msg.summary) w.setText(msg.summary);
+            else if (msg.summary) office.updateRecord(msg.id, { text: msg.summary });
+            office.complete(msg.id, wallNow, animNow, msg);
           } else if (msg.state === "recalled") {
-            w.onRecalled();
+            office.recall(msg.id, msg, wallNow, animNow);
           } else if (msg.state === "failed") {
-            w.onFailed(now);
+            office.fail(msg.id, wallNow, animNow, msg);
           } else if (msg.state === "working") {
-            w.onRecalled();
+            office.recall(msg.id, msg, wallNow, animNow);
           }
-          if (drawerAgentId === w.id) renderDrawerState(w);
+          const visible = office.get(msg.id);
+          if (visible && drawerAgentId === msg.id) renderDrawerState(visible);
+          else if (!visible && drawerAgentId === msg.id) closeDrawer();
           refreshChrome();
           break;
         }
@@ -251,13 +293,15 @@
   function frame(now) {
     const dt = Math.min(100, now - last);
     last = now;
-    office.update(now, dt);
+    const wallNow = Date.now();
+    office.update(now, dt, wallNow);
+    refreshChrome();
     ctx.clearRect(0, 0, LAYOUT.W, LAYOUT.H);
-    scene.draw(ctx);
+    scene.draw(ctx, wallNow);
     office.draw(ctx, now);
     if (drawerAgentId) {
-      const w = office.get(drawerAgentId);
-      if (w) renderDrawerState(w);
+      const visible = office.get(drawerAgentId);
+      if (visible) renderDrawerState(visible);
       else closeDrawer();
     }
     requestAnimationFrame(frame);

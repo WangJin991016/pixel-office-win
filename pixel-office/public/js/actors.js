@@ -1,7 +1,7 @@
 /* dynamic actors: workers (subagents) and the boss (orchestrator).
    Worker animation is a small state machine driven by server events:
-     spawning -> working -> (completed) delivering -> resting
-     resting/working <- recalled ; working -> failed -> failed_idle
+     spawning -> working -> delivering -> waiting -> clockout_walk
+     -> clockout_fade -> offstage; any visible terminal phase can be recalled.
 */
 "use strict";
 
@@ -9,10 +9,185 @@ const WALK_SPEED = 150;         // px/s
 const FRAME_MS = 170;           // walk frame flip
 const PRESENT_MS = 1900;        // standing at the boss with documents
 const ZZZ_MS = 950;
+const FADE_MS = 520;
+const APPEARANCE_VERSION = 3;
+const APPEARANCE_KEYS = ["head", "upper", "lower"];
+const LEGACY_APPEARANCE_KEYS = [
+  "skin", "shirt", "pants", "shoes", "hairstyle", "hat", "face_accessory", "glasses",
+];
 
 const deliveryQueue = [];       // worker ids waiting at the boss
 let deliveredPile = 0;          // paper stack on the boss desk
 const restSpotOwners = new Map(); // spotIndex -> workerId
+const waitSpotOwners = new Map();  // area:spot -> worker id
+
+function hashString(value) {
+  let hash = 0;
+  for (const ch of String(value)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return hash;
+}
+
+function inferredAppearanceVersion(value, declaredVersion = null) {
+  if (declaredVersion !== null && declaredVersion !== undefined && declaredVersion !== "") {
+    const declared = Number(declaredVersion);
+    if (Number.isFinite(declared)) return Math.trunc(declared);
+  }
+  if (value && typeof value === "object" && APPEARANCE_KEYS.every(key => key in value)) {
+    return APPEARANCE_VERSION;
+  }
+  if (value && typeof value === "object"
+      && LEGACY_APPEARANCE_KEYS.some(key => key in value)) return 2;
+  return APPEARANCE_VERSION;
+}
+
+function legacyAppearanceSeed(source, id, generation) {
+  const values = LEGACY_APPEARANCE_KEYS.map(key => {
+    const raw = Number(source[key]);
+    return Number.isFinite(raw) ? Math.max(0, Math.min(5, Math.round(raw))) : 0;
+  });
+  return `${id}|${generation ?? 0}|${values.join("|")}`;
+}
+
+function normalizeAppearance(value, id = "", declaredVersion = null, generation = null) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const version = inferredAppearanceVersion(source, declaredVersion);
+  if (version < APPEARANCE_VERSION || LEGACY_APPEARANCE_KEYS.some(key => key in source)) {
+    const seed = legacyAppearanceSeed(source, id, generation);
+    return Object.fromEntries(APPEARANCE_KEYS.map(key => [
+      key, hashString(`${seed}|${key}`) % 9,
+    ]));
+  }
+  const out = {};
+  APPEARANCE_KEYS.forEach((key, index) => {
+    const raw = Number(source[key]);
+    out[key] = Number.isFinite(raw)
+      ? Math.max(0, Math.min(8, Math.round(raw)))
+      : hashString(`${id}|fallback|${index}|${key}`) % 9;
+  });
+  return out;
+}
+
+function copyAppearance(value) {
+  return value && typeof value === "object" ? { ...value } : value;
+}
+
+function toWallTime(value) {
+  if (value == null || value === "") return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function appearanceRevisionAllows(target, meta = {}, force = false) {
+  if (meta.appearance === undefined) return false;
+  const nextVersion = inferredAppearanceVersion(meta.appearance, meta.appearanceVersion);
+  const currentVersion = Number(target.appearanceVersion) || 0;
+  if (nextVersion < currentVersion) return false;
+
+  const nextGeneration = meta.appearanceGeneration;
+  const currentGeneration = target.appearanceGeneration;
+  if (currentGeneration != null) {
+    // Once a generation is known, an unversioned or older packet cannot be
+    // proven current. This also prevents a V3 protocol upgrade from jumping
+    // backwards across generations.
+    if (nextGeneration == null) return false;
+    const nextNumber = Number(nextGeneration);
+    const currentNumber = Number(currentGeneration);
+    if (Number.isFinite(nextNumber) && Number.isFinite(currentNumber)) {
+      if (nextNumber < currentNumber) return false;
+    } else if (String(nextGeneration) !== String(currentGeneration)) {
+      return false;
+    }
+  }
+
+  if (force) return true;
+  if (nextVersion > currentVersion) return true;
+  if (currentGeneration == null) return nextGeneration != null;
+  const nextNumber = Number(nextGeneration);
+  const currentNumber = Number(currentGeneration);
+  if (Number.isFinite(nextNumber) && Number.isFinite(currentNumber)) {
+    return nextNumber > currentNumber;
+  }
+  // Same-generation packets never change a visible shift's appearance. This
+  // is what keeps a worker stable when a terminal phase is recalled.
+  return false;
+}
+
+function applyAppearanceUpdate(target, id, meta = {}, force = false) {
+  if (!appearanceRevisionAllows(target, meta, force)) return false;
+  const nextVersion = inferredAppearanceVersion(meta.appearance, meta.appearanceVersion);
+  target.appearance = normalizeAppearance(
+    meta.appearance, id, nextVersion, meta.appearanceGeneration,
+  );
+  target.appearanceVersion = nextVersion;
+  if (meta.appearanceGeneration != null) {
+    target.appearanceGeneration = meta.appearanceGeneration;
+  }
+  return true;
+}
+
+function poseFacesSide(pose) {
+  return ["stand_side", "walk_side_a", "walk_side_b", "briefcase", "sit", "sit_naked"]
+    .includes(pose);
+}
+
+function spotPosition(spot) {
+  if (Array.isArray(spot)) return { x: Number(spot[0]) || 0, y: Number(spot[1]) || 0 };
+  const x = Number(spot?.x ?? spot?.left ?? 0);
+  const y = Number(spot?.y ?? spot?.bottom ?? spot?.yBottom ?? 0);
+  return { x, y };
+}
+
+function waitSpots(area) {
+  const configured = area === "lounge" ? LAYOUT.loungeWaitSpots : LAYOUT.pantryWaitSpots;
+  if (Array.isArray(configured) && configured.length) return configured;
+  // The old layout's rest spots remain a safe local fallback until the scene
+  // contract with lounge/pantry coordinates is merged.
+  return area === "lounge" && Array.isArray(LAYOUT.restSpots) ? LAYOUT.restSpots : [];
+}
+
+function claimWaitSpot(id, terminalAt = null) {
+  const seed = hashString(`${id}:${terminalAt ?? ""}`);
+  const preferred = seed % 2 === 0 ? "lounge" : "pantry";
+  const areas = [preferred, preferred === "lounge" ? "pantry" : "lounge"];
+  for (const area of areas) {
+    const spots = waitSpots(area);
+    if (!spots.length) continue;
+    const start = seed % spots.length;
+    for (let offset = 0; offset < spots.length; offset++) {
+      const idx = (start + offset) % spots.length;
+      const key = `${area}:${idx}`;
+      if (waitSpotOwners.has(key)) continue;
+      waitSpotOwners.set(key, id);
+      return { area, idx, ...spots[idx], ...spotPosition(spots[idx]) };
+    }
+  }
+  const overflow = Array.isArray(LAYOUT.waitOverflowSpots) && LAYOUT.waitOverflowSpots.length
+    ? LAYOUT.waitOverflowSpots : [{ x: LAYOUT.door.x - 180, y: LAYOUT.door.y - 6 }];
+  const overflowStart = seed % overflow.length;
+  for (let offset = 0; offset < overflow.length; offset++) {
+    const idx = (overflowStart + offset) % overflow.length;
+    const key = `overflow:${idx}`;
+    if (waitSpotOwners.has(key)) continue;
+    waitSpotOwners.set(key, id);
+    return { area: "overflow", idx, ...overflow[idx], ...spotPosition(overflow[idx]) };
+  }
+  const fallback = spotPosition(overflow[hashString(id) % overflow.length]);
+  return { area: "overflow", idx: -1, ...fallback, x: fallback.x - 24 };
+}
+
+function releaseWaitSpot(id) {
+  for (const [key, owner] of waitSpotOwners) if (owner === id) waitSpotOwners.delete(key);
+}
+
+function removeFromQueues(id) {
+  for (let i = deliveryQueue.length - 1; i >= 0; i--) {
+    if (deliveryQueue[i] === id) deliveryQueue.splice(i, 1);
+  }
+  releaseRestSpot(id);
+  releaseWaitSpot(id);
+}
 
 function claimRestSpot(id) {
   for (let i = 0; i < LAYOUT.restSpots.length; i++) {
@@ -31,8 +206,21 @@ function releaseRestSpot(id) {
 
 function corridorY(deskY) { return deskY + 20; }
 
+function overflowSpot(id) {
+  let hash = 0;
+  for (const ch of String(id)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  const slot = hash % 5;
+  return { x: LAYOUT.door.x - 180 + slot * 46, y: LAYOUT.door.y - 6 };
+}
+
 class Worker {
-  constructor(id, name, deskIdx) {
+  constructor(id, name, deskIdx, meta = {}) {
+    if (!meta || typeof meta !== "object") meta = {};
+    if (meta && typeof meta === "object" && !meta.appearance
+        && [...APPEARANCE_KEYS, ...LEGACY_APPEARANCE_KEYS]
+          .some(key => Object.prototype.hasOwnProperty.call(meta, key))) {
+      meta = { appearance: meta };
+    }
     this.id = id;
     this.name = name;
     this.deskIdx = deskIdx;                  // -1 => no desk (overflow)
@@ -53,27 +241,150 @@ class Worker {
     this.lastZzz = 0;
     this.throwAnim = null;                   // {t0, from, to}
     this.alpha = 1;
+    this.terminalAt = toWallTime(meta.terminalAt);
+    this.leaveAt = toWallTime(meta.leaveAt);
+    this.terminalKind = null;
+    this.waitArea = null;
+    this.waitSpot = null;
+    this.restSpot = null;
+    this.fadeStarted = 0;
+    this.removeRequested = false;
+    this.appearanceVersion = inferredAppearanceVersion(meta.appearance, meta.appearanceVersion);
+    this.appearanceGeneration = meta.appearanceGeneration ?? null;
+    this.appearance = normalizeAppearance(
+      meta.appearance, id, this.appearanceVersion, this.appearanceGeneration,
+    );
     if (this.desk) {
       this.waypoints = this.pathTo(this.desk.x - 12, this.desk.y + 4);
     } else {
       // overflow: stand by the door with a briefcase
-      const n = deliveryQueue.length;
-      this.waypoints = [{ x: LAYOUT.door.x - 180 + (id.charCodeAt(3) % 5) * 46, y: LAYOUT.door.y - 6 }];
+      this.waypoints = [overflowSpot(id)];
     }
   }
 
   /* ---------- movement ---------------------------------------------- */
+  movementLane(salt = "") {
+    return (hashString(`${this.id}:${this.terminalAt ?? ""}:${salt}`) % 5 - 2) * 18;
+  }
+
+  waitLane(spot, salt = "") {
+    const index = Number(spot?.idx);
+    if (!Number.isInteger(index) || index < 0) return this.movementLane(`wait-${salt}`);
+    const slot = salt === "y" ? (index * 5 + 2) % 6 : index % 6;
+    return (slot - 2.5) * 14;
+  }
+
+  compactPath(points) {
+    const path = [];
+    let previous = { x: this.x, y: this.y };
+    for (const point of points) {
+      const next = { x: Number(point.x), y: Number(point.y) };
+      if (!Number.isFinite(next.x) || !Number.isFinite(next.y)) continue;
+      if (Math.hypot(next.x - previous.x, next.y - previous.y) < 1) continue;
+      path.push(next);
+      previous = next;
+    }
+    return path;
+  }
+
   pathTo(x, y) {
     // L-shaped walk through the aisle so he never crosses desks
     const pts = [];
-    const corr = this.y <= 567 ? 512 : 668;
-    if (Math.abs(this.x - LAYOUT.aisleX) > 40) {
+    const laneX = LAYOUT.aisleX + this.movementLane("aisle");
+    const laneY = this.movementLane("corridor") / 3;
+    const corr = (this.y <= 567 ? 512 : 668) + laneY;
+    if (Math.abs(this.x - laneX) > 40) {
       pts.push({ x: this.x, y: corr });
-      pts.push({ x: LAYOUT.aisleX, y: corr });
+      pts.push({ x: laneX, y: corr });
     }
-    pts.push({ x: LAYOUT.aisleX, y });
+    pts.push({ x: laneX, y });
     pts.push({ x, y });
-    return pts;
+    return this.compactPath(pts);
+  }
+
+  pathToWait(spot) {
+    const target = this.waitStandPosition(spot);
+    const laneX = this.waitLane(spot, "x");
+    const laneY = this.waitLane(spot, "y") / 3;
+    const points = [];
+
+    if (spot?.area === "pantry") {
+      // Enter through the room's bottom opening instead of cutting through
+      // the boss desk and the right-hand workstations.
+      const transitY = (this.y <= 567 ? 526 : 684) + laneY;
+      const pantry = LAYOUT.pantryRect || LAYOUT.pantry || { x: 1090, w: 188 };
+      const entrance = LAYOUT.pantryEntranceRange || { x1: 1140, x2: 1188, y: 380 };
+      const edgeX = Math.min(pantry.x + pantry.w - 36, 1236 + laneX / 3);
+      const entranceSlot = Number.isInteger(Number(spot?.idx)) && Number(spot.idx) >= 0
+        ? Number(spot.idx) % 6 : hashString(this.id) % 6;
+      const entranceX = Math.round(
+        entrance.x1 + 6 + entranceSlot * Math.max(1, (entrance.x2 - entrance.x1 - 12) / 5),
+      );
+      points.push(
+        { x: this.x, y: transitY },
+        { x: edgeX, y: transitY },
+        { x: edgeX, y: entrance.y },
+        { x: entranceX, y: entrance.y },
+        { x: entranceX, y: entrance.y - 2 },
+        target,
+      );
+      return this.compactPath(points);
+    }
+
+    if (spot?.zone === "upper_left") {
+      const transitY = (this.y <= 567 ? 526 : 684) + laneY;
+      const leftAisleX = 530 + laneX;
+      const stagingY = 360 + laneY / 2;
+      points.push(
+        { x: this.x, y: transitY },
+        { x: leftAisleX, y: transitY },
+        { x: leftAisleX, y: stagingY },
+        { x: target.x, y: stagingY },
+        target,
+      );
+      return this.compactPath(points);
+    }
+
+    if (spot?.zone === "lower_right") {
+      const aisleX = LAYOUT.aisleX + laneX;
+      const corridorY = (this.y <= 567 ? 526 : 684) + laneY;
+      const bottomY = Math.min(704, 688 + laneY);
+      points.push(
+        { x: this.x, y: corridorY },
+        { x: aisleX, y: corridorY },
+        { x: aisleX, y: bottomY },
+        { x: target.x, y: bottomY },
+        target,
+      );
+      return this.compactPath(points);
+    }
+
+    return this.pathTo(target.x, target.y);
+  }
+
+  isWalking() {
+    return this.waypoints.length > 0 && [
+      "spawning", "delivering", "rest_walk", "recalled", "waiting", "clockout_walk",
+    ].includes(this.state);
+  }
+
+  walkingPose() {
+    if (!this.waypoints.length) return "stand_front";
+    const dx = this.waypoints[0].x - this.x;
+    const dy = this.waypoints[0].y - this.y;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      return this.frame ? "walk_side_a" : "walk_side_b";
+    }
+    if (dy < 0) return this.frame ? "walk_back_b" : "walk_back";
+    return this.frame ? "walk_front_b" : "walk_front";
+  }
+
+  waitingPose() {
+    if (this.terminalKind === "failed") return "stand_front";
+    const kind = this.waitSpot?.kind;
+    if (this.waitArea === "pantry" || kind === "coffee") return "coffee";
+    if (kind === "chaise" || kind === "cushion") return "sit_naked";
+    return "stand_front";
   }
 
   moveStep(now, dt) {
@@ -101,6 +412,15 @@ class Worker {
     this.history = Array.isArray(history)
       ? history.map(text => String(text || "").trim()).filter(Boolean) : [];
   }
+  setServerData(meta = {}, forceAppearance = false) {
+    if (Object.prototype.hasOwnProperty.call(meta, "terminalAt")) {
+      this.terminalAt = toWallTime(meta.terminalAt);
+    }
+    if (Object.prototype.hasOwnProperty.call(meta, "leaveAt")) {
+      this.leaveAt = toWallTime(meta.leaveAt);
+    }
+    applyAppearanceUpdate(this, this.id, meta, forceAppearance);
+  }
   appendProgress(text) {
     text = String(text || "").replace(/\r/g, "").trim();
     if (!text) return false;
@@ -108,46 +428,127 @@ class Worker {
     return true;
   }
 
-  onCompleted(now) {
+  onCompleted(wallNow, animNow = wallNow, meta = {}) {
+    if (animNow && typeof animNow === "object") {
+      meta = animNow;
+      animNow = wallNow;
+    }
+    this.setServerData(meta);
+    if (["waiting", "clockout_walk", "clockout_fade", "offstage"].includes(this.state)) return;
     if (["delivering", "resting", "rest_walk"].includes(this.state)) return;
+    this.terminalKind = "completed";
+    this.terminalAt = toWallTime(meta.terminalAt) ?? this.terminalAt ?? wallNow;
     this.state = "delivering";
     this.waypoints = this.pathTo(LAYOUT.queueSlots[0].x, LAYOUT.queueSlots[0].y);
     if (!deliveryQueue.includes(this.id)) deliveryQueue.push(this.id);
   }
 
-  onRecalled() {
+  onRecalled(meta = {}, wallNow = Date.now(), animNow = wallNow) {
+    this.setServerData(meta);
     if (this.state === "working") return;
-    this.state = "recalled";
-    this.bubble.mood = "normal";
-    releaseRestSpot(this.id);
-    this.restSpot = null;
-    if (this.desk) this.waypoints = this.pathTo(this.desk.x - 12, this.desk.y + 4);
-  }
-
-  onFailed(now) {
-    if (this.state === "failed" || this.state === "failed_idle") return;
-    const qi = deliveryQueue.indexOf(this.id);
-    if (qi >= 0) deliveryQueue.splice(qi, 1);
+    removeFromQueues(this.id);
     this.presentUntil = 0;
     this.throwAnim = null;
-    releaseRestSpot(this.id);
+    this.fadeStarted = 0;
+    this.removeRequested = false;
+    this.alpha = 1;
+    this.terminalAt = null;
+    this.leaveAt = null;
+    this.terminalKind = null;
+    this.waitArea = null;
+    this.waitSpot = null;
     this.restSpot = null;
-    this.state = "failed";
-    // walk to the nearest trash bin, then throw the papers away
-    let bin = LAYOUT.trashBins[0];
-    if (this.desk) {
-      for (const b of LAYOUT.trashBins) {
-        if (Math.hypot(b.x - this.desk.x, b.y - this.desk.y) <
-            Math.hypot(bin.x - this.desk.x, bin.y - this.desk.y)) bin = b;
-      }
+    this.state = "recalled";
+    this.bubble.mood = "normal";
+    if (this.desk) this.waypoints = this.pathTo(this.desk.x - 12, this.desk.y + 4);
+    else this.waypoints = [overflowSpot(this.id)];
+  }
+
+  onFailed(wallNow, animNow = wallNow, meta = {}) {
+    if (animNow && typeof animNow === "object") {
+      meta = animNow;
+      animNow = wallNow;
     }
-    this.bin = bin;
-    this.waypoints = this.pathTo(bin.x - 20, bin.y + 12);
+    if (["waiting", "clockout_walk", "clockout_fade", "offstage"].includes(this.state)) return;
+    this.setServerData(meta);
+    removeFromQueues(this.id);
+    this.presentUntil = 0;
+    this.throwAnim = null;
+    this.terminalKind = "failed";
+    this.terminalAt = toWallTime(meta.terminalAt) ?? this.terminalAt ?? wallNow;
     this.bubble.mood = "error";
+    this.beginTerminalWait(wallNow, animNow);
+  }
+
+  beginTerminalWait(wallNow, animNow) {
+    this.state = "waiting";
+    this.zzz = [];
+    this.throwAnim = null;
+    for (let i = deliveryQueue.length - 1; i >= 0; i--) {
+      if (deliveryQueue[i] === this.id) deliveryQueue.splice(i, 1);
+    }
+    releaseWaitSpot(this.id);
+    this.waitArea = null;
+    this.waitSpot = null;
+    this.restSpot = null;
+    this.waitSpot = claimWaitSpot(this.id, this.terminalAt);
+    this.waitArea = this.waitSpot.area;
+    const p = this.waitStandPosition(this.waitSpot);
+    this.waypoints = this.pathToWait(this.waitSpot);
+    this.bubble.mood = this.terminalKind === "failed" ? "error" : "dim";
+    if (this.leaveAt == null || this.leaveAt <= wallNow) this.startClockOut(animNow);
+  }
+
+  waitStandPosition(spot) {
+    const p = spotPosition(spot);
+    if (spot?.standX != null || spot?.standY != null) {
+      return { x: Number(spot.standX ?? p.x), y: Number(spot.standY ?? p.y) };
+    }
+    return { x: p.x, y: p.y };
+  }
+
+  hydrateTerminal(state, wallNow, animNow, meta = {}) {
+    this.setServerData(meta, true);
+    this.terminalKind = state === "failed" || state === "failed_idle" ? "failed" : "completed";
+    this.bubble.mood = this.terminalKind === "failed" ? "error" : "dim";
+    this.beginTerminalWait(wallNow, animNow);
+    // A snapshot describes current reality, not a new terminal transition.
+    // Restore directly at the stable wait spot so refresh/reconnect does not
+    // replay every worker's route from the entrance and stack them in lanes.
+    if (this.state === "waiting" && this.waitSpot) {
+      const target = this.waitStandPosition(this.waitSpot);
+      this.x = target.x;
+      this.y = target.y;
+      this.waypoints = [];
+    }
+  }
+
+  startClockOut(animNow) {
+    if (["clockout_walk", "clockout_fade", "offstage"].includes(this.state)) return;
+    releaseWaitSpot(this.id);
+    this.waitArea = null;
+    this.waitSpot = null;
+    this.state = "clockout_walk";
+    this.waypoints = this.pathTo(LAYOUT.door.x, LAYOUT.door.y);
+    this.fadeStarted = 0;
+    this.alpha = 1;
+    if (!this.waypoints.length) this.startFade(animNow);
+  }
+
+  startFade(animNow) {
+    this.state = "clockout_fade";
+    this.fadeStarted = animNow;
+    this.alpha = 1;
+  }
+
+  updateDeadline(wallNow, animNow) {
+    if (this.state === "waiting" && (this.leaveAt == null || wallNow >= this.leaveAt)) {
+      this.startClockOut(animNow);
+    }
   }
 
   /* ---------- per-frame update -------------------------------------- */
-  update(now, dt, workers) {
+  update(now, dt, workers, wallNow = Date.now()) {
     this.bubble.update(now);
     switch (this.state) {
       case "spawning": {
@@ -162,6 +563,10 @@ class Worker {
         if (this.moveStep(now, dt)) break;
         // wait for our queue slot (only the front worker presents)
         const qi = deliveryQueue.indexOf(this.id);
+        if (qi < 0) {
+          this.state = "recalled";
+          break;
+        }
         const slot = LAYOUT.queueSlots[Math.min(qi, LAYOUT.queueSlots.length - 1)];
         if (Math.abs(this.x - slot.x) > 2 || Math.abs(this.y - slot.y) > 2) {
           this.waypoints = [{ x: slot.x, y: slot.y }];
@@ -170,15 +575,11 @@ class Worker {
         if (qi === 0) {
           if (!this.presentUntil) this.presentUntil = now + PRESENT_MS;
           if (now >= this.presentUntil) {
-            deliveryQueue.shift();
+            deliveryQueue.splice(0, 1);
             this.presentUntil = 0;
             deliveredPile = Math.min(deliveredPile + 1, 6);
             Boss.nod(now);
-            this.state = "rest_walk";
-            this.restSpot = claimRestSpot(this.id);
-            const s = this.restSpot;
-            const standX = s.kind === "chaise" ? s.x - 46 : s.x;
-            this.waypoints = this.pathTo(standX, s.y);
+            this.beginTerminalWait(wallNow, now);
           }
         }
         break;
@@ -198,101 +599,120 @@ class Worker {
         }
         for (const z of this.zzz) z.t += dt;
         break;
-      case "recalled":
-        if (!this.moveStep(now, dt)) this.state = "working";
-        break;
-      case "failed": {
-        if (this.moveStep(now, dt)) break;
-        if (!this.throwAnim) {
-          this.throwAnim = { t0: now, from: { x: this.x + 8, y: this.y - 44 }, to: this.bin };
-        }
-        if (now - this.throwAnim.t0 > 650) {
-          this.throwAnim = null;
-          this.state = "failed_back";
-          if (this.desk) this.waypoints = this.pathTo(this.desk.x - 12, this.desk.y + 4);
-          else this.state = "failed_idle";
+      case "waiting": {
+        this.updateDeadline(wallNow, now);
+        if (this.state !== "waiting") break;
+        this.moveStep(now, dt);
+        if (this.state === "waiting" && this.terminalKind === "completed" && !this.bubble.text) {
+          this.bubble.setText("任务完成，等待下班…");
         }
         break;
       }
-      case "failed_back":
-        if (!this.moveStep(now, dt)) this.state = "failed_idle";
+      case "recalled":
+        if (!this.moveStep(now, dt)) this.state = "working";
         break;
+      case "clockout_walk":
+        if (!this.moveStep(now, dt)) this.startFade(now);
+        break;
+      case "clockout_fade":
+        this.alpha = Math.max(0, 1 - (now - this.fadeStarted) / FADE_MS);
+        if (this.alpha <= 0) {
+          this.state = "offstage";
+          this.removeRequested = true;
+        }
+        break;
+      case "failed":
+      case "failed_back":
       case "failed_idle":
+        // Kept as inert compatibility states for old snapshots. New failure
+        // events always use waiting and never visit the trash path.
         break;
     }
   }
 
   /* ---------- drawing ------------------------------------------------ */
-  drawSprite(ctx, now) {
-    const walking = this.waypoints.length > 0 &&
-      ["spawning", "delivering", "rest_walk", "recalled", "failed", "failed_back"].includes(this.state);
+  drawWorker(ctx, pose, x, y, opts = {}) {
+    if (typeof SPRITES.drawWorker === "function") {
+      SPRITES.drawWorker(ctx, pose, this.appearance, x, y, opts);
+    } else {
+      // Compatibility with the pre-appearance sprite bundle.
+      SPRITES.draw(ctx, pose, x, y, opts);
+    }
+  }
 
-    if (walking) {
-      const dx = this.waypoints[0].x - this.x;
-      const dy = this.waypoints[0].y - this.y;
-      let name;
-      if (Math.abs(dx) >= Math.abs(dy)) {
-        name = this.frame ? "walk_side_a" : "walk_side_b";
-        SPRITES.draw(ctx, name, this.x, this.y, { flip: this.facing === 1, alpha: this.alpha });
-      } else {
-        name = dy < 0 ? "walk_back" : "walk_front";
-        // subtle 2-frame hop so vertical walks don't look static
-        SPRITES.draw(ctx, name, this.x, this.y + (this.frame ? -2 : 0), { alpha: this.alpha });
-      }
+  drawSprite(ctx, now) {
+    if (this.isWalking()) {
+      const name = this.walkingPose();
+      this.drawWorker(ctx, name, this.x, this.y, {
+        flip: poseFacesSide(name) && this.facing === 1,
+        alpha: this.alpha,
+      });
       return;
     }
 
     switch (this.state) {
       case "delivering": {
         // standing in front of the boss holding the documents
-        SPRITES.draw(ctx, "documents", this.x, this.y);
+        this.drawWorker(ctx, "documents", this.x, this.y, { alpha: this.alpha });
         break;
       }
       case "failed": {
-        SPRITES.draw(ctx, "documents", this.x, this.y);
+        this.drawWorker(ctx, "stand_front", this.x, this.y, { alpha: this.alpha });
+        break;
+      }
+      case "waiting": {
+        const pose = this.waitingPose();
+        this.drawWorker(ctx, pose, this.x, this.y, {
+          flip: poseFacesSide(pose) && this.facing === 1,
+          alpha: this.alpha,
+        });
         break;
       }
       case "resting": {
         // lounging depends on the spot: chaise tilt / cushion sit / coffee stand
         const kind = this.restSpot ? this.restSpot.kind : "cushion";
         if (kind === "chaise") {
-          SPRITES.draw(ctx, "sit_naked", this.x + 38, this.y - 4, { rotate: -0.16 });
+          this.drawWorker(ctx, "sit_naked", this.x + 38, this.y - 4, {
+            flip: this.facing === 1, rotate: -0.16, alpha: this.alpha,
+          });
         } else if (kind === "cushion") {
-          SPRITES.draw(ctx, "sit_naked", this.x, this.y - 4);
+          this.drawWorker(ctx, "sit_naked", this.x, this.y - 4, {
+            flip: this.facing === 1, alpha: this.alpha,
+          });
         } else {
-          SPRITES.draw(ctx, "coffee", this.x, this.y);
+          this.drawWorker(ctx, "coffee", this.x, this.y, { alpha: this.alpha });
         }
         break;
       }
       case "failed_idle": {
-        // face-down on the desk: slumped low, only the back of the head shows
-        if (this.desk) SPRITES.draw(ctx, "upper_back", this.desk.x - 8, this.desk.y - 18);
-        else SPRITES.draw(ctx, "stand_front", this.x, this.y);
+        this.drawWorker(ctx, "stand_front", this.x, this.y, { alpha: this.alpha });
         break;
       }
+      case "offstage":
+        return;
       case "working": {
         if (this.desk) {
           const bob = Math.sin(this.bobT / 140) * 1.6;
-          SPRITES.draw(ctx, "upper_back", this.desk.x - 8, this.desk.y + 2 + bob);
+          this.drawWorker(ctx, "upper_back", this.desk.x - 8, this.desk.y + 2 + bob, { alpha: this.alpha });
         } else {
-          SPRITES.draw(ctx, "briefcase", this.x, this.y);
+          this.drawWorker(ctx, "briefcase", this.x, this.y, {
+            flip: this.facing === 1, alpha: this.alpha,
+          });
         }
         break;
       }
       default:
-        SPRITES.draw(ctx, "stand_front", this.x, this.y, { alpha: this.alpha });
+        this.drawWorker(ctx, "stand_front", this.x, this.y, { alpha: this.alpha });
     }
   }
 
   visualPose() {
-    const walking = this.waypoints.length > 0 &&
-      ["spawning", "delivering", "rest_walk", "recalled", "failed", "failed_back"].includes(this.state);
-    if (walking) return { x: this.x, y: this.y, sprite: "walk_front" };
+    if (this.isWalking()) return { x: this.x, y: this.y, sprite: this.walkingPose() };
     if (this.state === "working" && this.desk) {
       return { x: this.desk.x - 8, y: this.desk.y + 2, sprite: "upper_back" };
     }
     if (this.state === "failed_idle" && this.desk) {
-      return { x: this.desk.x - 8, y: this.desk.y - 18, sprite: "upper_back" };
+      return { x: this.x, y: this.y, sprite: "stand_front" };
     }
     if (this.state === "resting") {
       const kind = this.restSpot ? this.restSpot.kind : "cushion";
@@ -304,10 +724,13 @@ class Worker {
       }
       return { x: this.x, y: this.y, sprite: "coffee" };
     }
+    if (this.state === "waiting") {
+      return { x: this.x, y: this.y, sprite: this.waitingPose() };
+    }
     if (this.state === "working" && !this.desk) {
       return { x: this.x, y: this.y, sprite: "briefcase" };
     }
-    if (this.state === "delivering" || this.state === "failed") {
+    if (this.state === "delivering") {
       return { x: this.x, y: this.y, sprite: "documents" };
     }
     return { x: this.x, y: this.y, sprite: "stand_front" };
@@ -336,8 +759,10 @@ class Worker {
   drawBubble(ctx, now) {
     // while delivering / heading to the lounge the documents pose tells the
     // story — hide the cloud so it never covers the boss
-    const hidden = ["delivering", "rest_walk", "spawning"].includes(this.state)
-      && this.waypoints.length > 0;
+    const hidden = this.waypoints.length > 0 && (
+      ["delivering", "rest_walk", "spawning", "clockout_walk", "clockout_fade", "offstage"].includes(this.state)
+      || (this.state === "waiting" && this.terminalKind !== "failed")
+    );
     this.bubble.visible = !hidden;
     const h = this.headPos();
     const cx = Math.max(BUBBLE.width / 2 + 6,
@@ -426,23 +851,169 @@ const Boss = {
 };
 
 /* ------------------------------------------------------- office director */
+function deskVariantName(deskIdx) {
+  if (deskIdx == null || deskIdx < 0) return null;
+  return (typeof DESK_VARIANTS !== "undefined" && DESK_VARIANTS[deskIdx])
+    || `desk_variant_${deskIdx}`;
+}
+
 class Office {
   constructor() {
     this.workers = new Map();   // id -> Worker
+    this.archived = new Map();  // terminal records, intentionally not visible
     this.freeDesks = [...Array(LAYOUT.desks.length).keys()];
     this.usedDesks = new Map(); // id -> deskIdx
   }
 
-  spawn(id, name) {
+  spawn(id, name, claimDesk = true, meta = {}) {
+    if (claimDesk && typeof claimDesk === "object") {
+      meta = claimDesk;
+      claimDesk = true;
+    }
     if (this.workers.has(id)) return this.workers.get(id);
-    const deskIdx = this.freeDesks.length ? this.freeDesks.shift() : -1;
-    const w = new Worker(id, name, deskIdx);
+    const deskIdx = claimDesk && this.freeDesks.length ? this.freeDesks.shift() : -1;
+    const w = new Worker(id, name, deskIdx, meta);
     if (deskIdx >= 0) this.usedDesks.set(id, deskIdx);
     this.workers.set(id, w);
+    this.archived.delete(id);
     return w;
   }
 
   get(id) { return this.workers.get(id); }
+  getRecord(id) { return this.workers.get(id) || this.archived.get(id) || null; }
+
+  recordFromWorker(w, state = null) {
+    return {
+      id: w.id, name: w.name, state: state || (w.terminalKind || w.state),
+      text: w.bubble.text || "", task: w.task, history: [...w.history],
+      terminalAt: w.terminalAt, leaveAt: w.leaveAt,
+      appearanceVersion: w.appearanceVersion,
+      appearanceGeneration: w.appearanceGeneration,
+      appearance: copyAppearance(w.appearance), visible: false,
+    };
+  }
+
+  archiveSnapshot(agent) {
+    const record = {
+      id: agent.id, name: agent.name, state: agent.state,
+      text: String(agent.text || ""), task: String(agent.task || agent.name || ""),
+      history: Array.isArray(agent.history) ? [...agent.history] : [],
+      terminalAt: toWallTime(agent.terminalAt), leaveAt: toWallTime(agent.leaveAt),
+      appearanceVersion: agent.appearanceVersion ?? null,
+      appearanceGeneration: agent.appearanceGeneration ?? null,
+      appearance: normalizeAppearance(
+        agent.appearance, agent.id, agent.appearanceVersion, agent.appearanceGeneration,
+      ), visible: false,
+    };
+    this.archived.set(agent.id, record);
+    return record;
+  }
+
+  updateRecord(id, patch = {}) {
+    const record = this.getRecord(id);
+    if (!record) return null;
+    if (record instanceof Worker) {
+      if (patch.text != null) record.setText(patch.text);
+      if (patch.task != null) record.setTask(patch.task);
+      if (patch.history != null) record.setHistory(patch.history);
+      record.setServerData(patch);
+      return record;
+    }
+    if (patch.text != null) record.text = String(patch.text);
+    if (patch.state != null) record.state = String(patch.state);
+    if (patch.task != null) record.task = String(patch.task);
+    if (patch.history != null) record.history = [...patch.history];
+    if (patch.progress != null) record.history.push(String(patch.progress));
+    if (patch.terminalAt !== undefined) record.terminalAt = toWallTime(patch.terminalAt);
+    if (patch.leaveAt !== undefined) record.leaveAt = toWallTime(patch.leaveAt);
+    applyAppearanceUpdate(record, id, patch);
+    return record;
+  }
+
+  assignDesk(w) {
+    if (!w || w.desk || !this.freeDesks.length) return false;
+    const deskIdx = this.freeDesks.shift();
+    w.deskIdx = deskIdx;
+    w.desk = LAYOUT.desks[deskIdx];
+    this.usedDesks.set(w.id, deskIdx);
+    w.waypoints = w.pathTo(w.desk.x - 12, w.desk.y + 4);
+    if (w.state === "working") w.state = "recalled";
+    return true;
+  }
+
+  releaseDesk(id, promote = true) {
+    const deskIdx = this.usedDesks.get(id);
+    if (deskIdx == null) return false;
+    this.usedDesks.delete(id);
+    if (!this.freeDesks.includes(deskIdx)) {
+      this.freeDesks.push(deskIdx);
+      this.freeDesks.sort((a, b) => a - b);
+    }
+    const w = this.workers.get(id);
+    if (w) {
+      w.deskIdx = -1;
+      w.desk = null;
+    }
+    if (promote) this.promoteWaiting();
+    return true;
+  }
+
+  promoteWaiting() {
+    while (this.freeDesks.length) {
+      const waiting = [...this.workers.values()].find(w =>
+        !w.desk && ["spawning", "working", "recalled"].includes(w.state));
+      if (!waiting || !this.assignDesk(waiting)) break;
+    }
+  }
+
+  complete(id, wallNow, animNow = wallNow, meta = {}) {
+    if (animNow && typeof animNow === "object") {
+      meta = animNow;
+      animNow = wallNow;
+    }
+    const w = this.workers.get(id);
+    if (!w) return this.updateRecord(id, meta);
+    w.onCompleted(wallNow, animNow, meta);
+    this.releaseDesk(id);
+    return w;
+  }
+
+  fail(id, wallNow, animNow = wallNow, meta = {}) {
+    if (animNow && typeof animNow === "object") {
+      meta = animNow;
+      animNow = wallNow;
+    }
+    const w = this.workers.get(id);
+    if (!w) return this.updateRecord(id, meta);
+    w.onFailed(wallNow, animNow, meta);
+    this.releaseDesk(id);
+    return w;
+  }
+
+  recall(id, meta = {}, wallNow = Date.now(), animNow = wallNow) {
+    const w = this.workers.get(id);
+    if (!w) {
+      const old = this.archived.get(id);
+      if (!old) return null;
+      const baseline = { ...old, terminalAt: null, leaveAt: null };
+      const fresh = this.spawn(id, meta.name || old.name, true, baseline);
+      fresh.setText(meta.text ?? old.text);
+      fresh.setTask(meta.task ?? old.task);
+      fresh.setHistory(meta.history ?? old.history);
+      fresh.setServerData(meta);
+      fresh.terminalAt = null;
+      fresh.leaveAt = null;
+      return fresh;
+    }
+    if (meta.name) w.name = String(meta.name);
+    if (meta.task != null) w.setTask(meta.task);
+    w.onRecalled(meta, wallNow, animNow);
+    if (!w.desk && !this.assignDesk(w)) {
+      const spot = overflowSpot(w.id);
+      w.waypoints = w.pathTo(spot.x, spot.y);
+    }
+    return w;
+  }
 
   reset() {
     this.workers.clear();
@@ -450,6 +1021,8 @@ class Office {
     this.usedDesks.clear();
     deliveryQueue.length = 0;
     restSpotOwners.clear();
+    waitSpotOwners.clear();
+    this.archived.clear();
     deliveredPile = 0;
   }
 
@@ -458,9 +1031,24 @@ class Office {
       ["working", "spawning", "delivering", "recalled"].includes(w.state));
   }
 
-  update(now, dt) {
-    for (const w of this.workers.values()) w.update(now, dt, this.workers);
+  update(now, dt, wallNow = Date.now()) {
+    for (const w of [...this.workers.values()]) {
+      w.update(now, dt, this.workers, wallNow);
+      if (w.removeRequested && this.workers.get(w.id) === w) this.archiveWorker(w);
+    }
     Boss.update(now, this.anyWorking());
+  }
+
+  archiveWorker(w) {
+    const terminalState = w.state === "offstage"
+      ? "offstage" : (w.terminalKind === "failed" ? "failed" : "completed");
+    const record = this.recordFromWorker(w, terminalState);
+    removeFromQueues(w.id);
+    this.releaseDesk(w.id, false);
+    this.workers.delete(w.id);
+    this.archived.set(w.id, record);
+    this.promoteWaiting();
+    return record;
   }
 
   draw(ctx, now) {
@@ -492,21 +1080,31 @@ class Office {
     for (const b of LAYOUT.trashBins) {
       ents.push({ y: b.y, draw: () => SPRITES.draw(ctx, "trash", b.x, b.y) });
     }
-    // every occupied desk is its own entity
-    for (const [id, deskIdx] of this.usedDesks) {
-      const w = this.workers.get(id);
+    // Desks are permanent furniture; only their worker/nameplate ownership changes.
+    const ownerByDesk = new Map([...this.usedDesks].map(([id, deskIdx]) => [deskIdx, id]));
+    for (let deskIdx = 0; deskIdx < LAYOUT.desks.length; deskIdx++) {
+      const ownerId = ownerByDesk.get(deskIdx);
+      const w = ownerId ? this.workers.get(ownerId) : null;
       const d = LAYOUT.desks[deskIdx];
       ents.push({
         y: d.y,
         draw: () => {
-          SPRITES.draw(ctx, "desk", d.x, d.y);
+          SPRITES.draw(ctx, deskVariantName(deskIdx), d.x, d.y);
           if (w) this.drawNameplate(ctx, w);
         },
       });
     }
+    if (LAYOUT.pantryFront) {
+      const pantry = LAYOUT.pantryFront;
+      const p = spotPosition(pantry);
+      ents.push({
+        y: p.y,
+        draw: () => SPRITES.draw(ctx, pantry.sprite || "pantry_front", p.x, p.y),
+      });
+    }
     // workers: seated ones sit on a chair in front of their desk
     for (const w of this.workers.values()) {
-      const seated = w.desk && ["working", "failed_idle"].includes(w.state);
+      const seated = w.desk && ["working"].includes(w.state);
       if (seated) {
         ents.push({
           y: w.desk.y + 16,
@@ -546,7 +1144,8 @@ class Office {
     // state LED
     const colors = {
       working: "#5fce5f", spawning: "#e8c94a", delivering: "#e8c94a",
-      resting: "#6a9fd8", failed: "#e05a4a", failed_idle: "#e05a4a",
+      resting: "#6a9fd8", waiting: "#6a9fd8", clockout_walk: "#e8c94a",
+      clockout_fade: "#e8c94a", offstage: "#999", failed: "#e05a4a", failed_idle: "#e05a4a",
       completed: "#e8c94a", recalled: "#5fce5f",
     };
     ctx.fillStyle = colors[w.state] || "#999";

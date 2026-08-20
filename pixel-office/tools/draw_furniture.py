@@ -5,7 +5,11 @@ All pieces are drawn at small integer grids with the shared palette, saved x4.
 Design references: boss.jpeg (executive desk, bookshelf, window, rug),
 desk.jpeg (worker desk + monitor), Stardew-ish warmth.
 """
-from pixel_art import Grid, C, autoline
+import os
+
+from PIL import Image
+
+from pixel_art import Grid, C, OUT, autoline
 
 LEATHER = (122, 58, 68); LEATHER_D = (94, 44, 52); LEATHER_L = (150, 76, 86)
 BRASS = (217, 168, 33); BRASS_D = (150, 112, 22)
@@ -419,7 +423,386 @@ PIECES = {
     "trash.png": trash(),
 }
 
+# ---------------------------------------------------------------- generated room variants
+# Existing PIECES are the original runtime sprites and are intentionally not
+# written by this generator. The following assets use new names only.
+WINDOW_NAMES = ("dawn", "morning", "noon", "afternoon", "dusk", "night")
+
+
+WINDOW_PALETTES = (
+    # sky, horizon, hill, grass, sun/moon, cloud, stars
+    ((229, 157, 165), (247, 194, 156), (109, 105, 153), (94, 139, 105), (255, 212, 119), (255, 225, 207), None),
+    ((128, 192, 231), (166, 214, 235), (73, 143, 98), (83, 164, 89), (255, 226, 127), C["cloud"], None),
+    ((93, 179, 232), (142, 210, 239), (58, 126, 91), (74, 166, 82), (255, 237, 143), C["cloud"], None),
+    ((219, 161, 104), (242, 192, 112), (112, 93, 83), (101, 137, 75), (255, 210, 110), (255, 229, 190), None),
+    ((168, 105, 143), (229, 139, 113), (65, 69, 112), (66, 91, 87), (255, 183, 102), (240, 189, 196), None),
+    ((35, 48, 91), (54, 72, 123), (38, 56, 88), (44, 77, 83), (241, 224, 164), None, (177, 202, 235)),
+)
+
+
+def _window_variant(index):
+    sky, horizon, hill, grass, sun, cloud, stars = WINDOW_PALETTES[index]
+    g = Grid(64, 54)
+    # Interior is deliberately identical in geometry to window().
+    g.rect(0, 0, 63, 53, C["wood"])
+    g.rect(3, 3, 60, 50, C["woodD"])
+    g.rect(5, 5, 58, 48, sky)
+    if index == 0:  # dawn: two warm bands before the hills
+        g.rect(5, 22, 58, 39, horizon)
+        g.disc(18, 34, 5, sun, squash=0.8)
+    elif index == 1:  # morning
+        g.rect(5, 31, 58, 39, horizon)
+        g.disc(48, 17, 4, sun, squash=0.8)
+    elif index == 2:  # noon
+        g.disc(17, 15, 5, sun, squash=0.8)
+        g.hline(5, 58, 30, horizon)
+    elif index == 3:  # afternoon
+        g.rect(5, 18, 58, 39, horizon)
+        g.disc(49, 31, 5, sun, squash=0.8)
+    elif index == 4:  # dusk
+        g.rect(5, 23, 58, 39, horizon)
+        g.disc(18, 33, 5, sun, squash=0.8)
+    else:  # night
+        g.disc(46, 15, 5, sun, squash=0.8)
+        g.disc(48, 13, 5, sky, squash=0.8)  # crescent cut-out
+        for sx, sy in ((12, 12), (25, 9), (36, 16), (52, 27), (27, 31), (10, 28)):
+            g.set(sx, sy, stars)
+
+    # shared landscape silhouette and lower window pane
+    g.rect(5, 40, 58, 48, grass)
+    g.disc(18, 40, 10, hill, squash=0.6)
+    g.disc(44, 41, 12, hill, squash=0.6)
+    g.hline(5, 58, 40, tuple(max(0, c - 22) for c in grass))
+    if index in (0, 3, 4):
+        g.hline(5, 58, 42, tuple(min(255, c + 12) for c in grass))
+    if index == 5:
+        g.rect(5, 40, 58, 48, grass)
+        g.disc(18, 40, 10, hill, squash=0.6)
+        g.disc(44, 41, 12, hill, squash=0.6)
+        for sx, sy in ((14, 44), (22, 46), (41, 44), (48, 46)):
+            g.set(sx, sy, (221, 183, 91))
+
+    if cloud is not None:
+        cloud_sets = {
+            0: ((10, 10, 20, 13), (12, 9, 18, 10), (39, 18, 49, 21), (41, 17, 47, 18)),
+            1: ((10, 11, 20, 14), (12, 10, 18, 11), (39, 18, 51, 21), (41, 17, 49, 18)),
+            2: ((9, 9, 18, 12), (11, 8, 16, 9), (40, 16, 52, 19), (43, 15, 49, 16)),
+            3: ((11, 12, 21, 15), (13, 11, 19, 12), (37, 19, 48, 22), (39, 18, 45, 19)),
+            4: ((9, 13, 18, 16), (11, 12, 16, 13), (39, 20, 49, 23), (41, 19, 47, 20)),
+        }
+        for x0, y0, x1, y1 in cloud_sets[index]:
+            g.rect(x0, y0, x1, y1, cloud)
+
+    # same frame/mullions/sill anchor as the original window asset
+    g.rect(30, 5, 33, 48, C["wood"])
+    g.rect(5, 25, 58, 28, C["wood"])
+    g.hline(30, 33, 25, C["woodL"])
+    g.hline(5, 58, 5, C["woodL"])
+    g.rect(0, 51, 63, 53, C["woodD"])
+    g.hline(0, 63, 51, C["woodL"])
+    autoline(g)
+    return g
+
+
+DESK_SPECS = (
+    {
+        "semantic": "mountain wallpaper + mug + notebook",
+        "body": (146, 96, 52), "body_dark": (110, 68, 36), "body_light": (178, 128, 76),
+        "top": (169, 117, 66), "frame": C["grayD"], "screen": "mountain",
+        "props": ("mug", "notebook"),
+    },
+    {
+        "semantic": "terminal/code + sticky notes + pencil cup",
+        "body": (107, 70, 47), "body_dark": (70, 43, 30), "body_light": (150, 97, 62),
+        "top": (137, 89, 55), "frame": (72, 74, 82), "screen": "terminal_code",
+        "props": ("sticky_notes", "pencil_cup"),
+    },
+    {
+        "semantic": "data charts + calculator + report",
+        "body": (190, 139, 84), "body_dark": (135, 92, 52), "body_light": (218, 167, 105),
+        "top": (202, 150, 91), "frame": (142, 145, 150), "screen": "data_charts",
+        "props": ("calculator", "report"),
+    },
+    {
+        "semantic": "document editor + books + fountain pen",
+        "body": (94, 67, 57), "body_dark": (58, 42, 39), "body_light": (132, 93, 72),
+        "top": (119, 81, 62), "frame": (67, 71, 84), "screen": "document_editor",
+        "props": ("books", "fountain_pen"),
+    },
+    {
+        "semantic": "DNA/molecule screen + small plant + sample tubes",
+        "body": (73, 115, 101), "body_dark": (46, 77, 70), "body_light": (113, 156, 128),
+        "top": (93, 141, 116), "frame": (79, 92, 99), "screen": "dna_molecule",
+        "props": ("small_plant", "sample_tubes"),
+    },
+    {
+        "semantic": "email/calendar + phone + file tray",
+        "body": (126, 62, 67), "body_dark": (80, 38, 47), "body_light": (167, 84, 82),
+        "top": (147, 73, 72), "frame": (76, 67, 83), "screen": "email_calendar",
+        "props": ("phone", "file_tray"),
+    },
+    {
+        "semantic": "starfield + headphones + snack",
+        "body": (70, 76, 82), "body_dark": (43, 46, 51), "body_light": (106, 112, 119),
+        "top": (91, 96, 101), "frame": (58, 64, 71), "screen": "starfield",
+        "props": ("headphones", "snack"),
+    },
+    {
+        "semantic": "system monitoring panel + desk lamp + toolbox",
+        "body": (169, 115, 58), "body_dark": (111, 70, 34), "body_light": (202, 147, 76),
+        "top": (184, 126, 63), "frame": (118, 126, 135), "screen": "system_monitoring",
+        "props": ("desk_lamp", "toolbox"),
+    },
+)
+
+
+def _draw_desk_screen(g, name):
+    if name == "mountain":
+        g.rect(38, 4, 74, 12, C["sky"]); g.rect(38, 13, 74, 23, C["grass"])
+        g.rect(40, 8, 50, 12, C["cloud"]); g.rect(42, 7, 48, 8, C["cloud"])
+        g.disc(52, 12, 6, C["mtn"], squash=0.7); g.disc(64, 12, 7, C["mtn"], squash=0.7)
+        g.hline(38, 74, 13, C["leafD"])
+    elif name == "terminal_code":
+        bg, ink, accent = (32, 44, 57), (106, 186, 113), (221, 174, 78)
+        g.rect(38, 4, 74, 23, bg)
+        for y, length in ((7, 18), (10, 26), (13, 13), (16, 30), (19, 22), (22, 15)):
+            g.hline(40, 40 + length, y, ink if y % 2 else accent)
+        g.set(43, 7, (202, 231, 181)); g.set(68, 16, (207, 127, 103))
+    elif name == "data_charts":
+        g.rect(38, 4, 74, 23, C["paper"])
+        g.hline(41, 71, 20, C["grayD"]); g.vline(42, 7, 20, C["grayD"])
+        for x, height, col in ((47, 7, C["tie"]), (54, 11, C["teal"]), (61, 5, C["red"]), (68, 14, C["gold"])):
+            g.rect(x, 20 - height, x + 3, 19, col); g.hline(x, x + 3, 20 - height, C["grayL"])
+    elif name == "document_editor":
+        g.rect(38, 4, 74, 23, C["paper"])
+        g.rect(38, 4, 74, 7, (84, 113, 158)); g.rect(42, 6, 49, 8, (170, 203, 220))
+        for y, end, col in ((13, 67, C["gray"]), (16, 72, C["grayD"]), (19, 62, C["gray"]), (22, 69, C["tie"])):
+            g.hline(42, end, y, col)
+        g.vline(40, 13, 22, C["paperD"]); g.set(70, 22, C["red"])
+    elif name == "dna_molecule":
+        g.rect(38, 4, 74, 23, (29, 67, 78))
+        for x, y in ((43, 7), (47, 11), (51, 15), (55, 19), (59, 23)):
+            g.set(x, y, (236, 104, 94)); g.set(x + 8, y + 2, (106, 190, 202))
+            g.line(x + 1, y, x + 7, y + 2, (236, 194, 102))
+        g.line(44, 7, 60, 23, (240, 127, 102)); g.line(52, 7, 68, 23, (93, 185, 193))
+        g.set(68, 8, (240, 194, 102)); g.set(70, 20, (240, 194, 102))
+    elif name == "email_calendar":
+        g.rect(38, 4, 55, 23, (226, 239, 232)); g.rect(57, 4, 74, 23, (191, 211, 220))
+        g.rect(40, 7, 53, 10, (110, 158, 187)); g.hline(41, 52, 13, C["gray"]); g.hline(41, 50, 16, C["gray"])
+        g.hline(41, 52, 19, C["grayD"]); g.hline(41, 49, 22, C["gray"])
+        g.rect(59, 7, 72, 10, (91, 125, 161)); g.hline(59, 72, 12, C["paperD"])
+        for x, y in ((60, 15), (65, 15), (70, 15), (60, 20), (65, 20), (70, 20)):
+            g.rect(x, y, x + 2, y + 2, C["paper"] if (x + y) % 2 else C["red"])
+    elif name == "starfield":
+        g.rect(38, 4, 74, 23, (28, 40, 79))
+        for x, y, col in ((42, 8, (229, 224, 157)), (49, 14, (174, 204, 235)), (55, 7, (229, 224, 157)),
+                          (62, 17, (174, 204, 235)), (68, 10, (229, 224, 157)), (72, 21, (174, 204, 235))):
+            g.set(x, y, col)
+        g.disc(57, 14, 4, (82, 105, 163), squash=0.8); g.set(60, 12, (114, 143, 194))
+    elif name == "system_monitoring":
+        g.rect(38, 4, 74, 23, (29, 44, 39))
+        g.rect(40, 6, 50, 12, (39, 70, 64)); g.rect(52, 6, 72, 12, (35, 61, 66))
+        g.hline(42, 48, 8, (123, 202, 119)); g.hline(54, 67, 8, (224, 176, 76))
+        g.hline(42, 47, 10, (224, 98, 88)); g.hline(54, 70, 10, (104, 180, 204))
+        g.rect(40, 14, 72, 21, (38, 63, 56)); g.hline(42, 68, 16, (130, 193, 109)); g.hline(42, 58, 19, (224, 176, 76))
+        g.set(70, 16, (224, 98, 88)); g.set(69, 19, (104, 180, 204))
+
+
+def _draw_desk_prop(g, name):
+    if name == "mug":
+        g.rect(82, 27, 88, 32, C["paper"]); g.vline(82, 27, 32, C["paperD"])
+        g.set(89, 28, C["paper"]); g.set(89, 29, C["paper"]); g.hline(83, 87, 27, C["potD"])
+    elif name == "notebook":
+        g.rect(8, 27, 23, 33, (74, 99, 145)); g.rect(10, 26, 21, 32, C["paper"])
+        g.hline(11, 19, 28, C["paperD"]); g.hline(11, 18, 30, C["gray"]); g.vline(10, 27, 32, (177, 72, 73))
+    elif name == "sticky_notes":
+        g.rect(8, 27, 15, 34, (244, 206, 93)); g.hline(9, 14, 29, (212, 155, 54))
+        g.rect(17, 29, 23, 34, (241, 151, 87)); g.hline(18, 21, 31, (198, 98, 66))
+    elif name == "pencil_cup":
+        g.rect(93, 27, 102, 34, (65, 117, 89)); g.hline(93, 102, 27, (119, 196, 130))
+        g.line(95, 27, 94, 19, (205, 115, 91)); g.line(98, 27, 100, 18, C["gold"])
+        g.line(100, 27, 103, 20, (75, 104, 175)); g.set(96, 19, (232, 179, 90))
+    elif name == "calculator":
+        g.rect(82, 26, 94, 34, C["grayD"]); g.rect(84, 27, 92, 30, C["screenD"])
+        for x, y in ((85, 32), (88, 32), (91, 32), (85, 33), (88, 33), (91, 33)):
+            g.set(x, y, C["grayL"])
+    elif name == "report":
+        g.rect(8, 27, 22, 33, C["paper"]); g.rect(10, 26, 21, 32, C["paper"])
+        g.hline(11, 19, 28, C["gray"]); g.hline(11, 18, 30, C["grayD"])
+        g.rect(17, 30, 19, 31, C["tie"]); g.rect(20, 28, 21, 31, C["teal"])
+    elif name == "books":
+        g.rect(8, 31, 24, 34, (149, 61, 68)); g.rect(9, 28, 24, 31, (66, 103, 153)); g.rect(11, 26, 24, 28, (183, 130, 55))
+        g.hline(12, 22, 27, (245, 207, 99)); g.hline(10, 22, 29, (129, 167, 197))
+    elif name == "fountain_pen":
+        g.line(84, 32, 102, 27, (66, 82, 141)); g.line(84, 32, 99, 28, (52, 61, 111))
+        g.set(102, 27, C["gold"]); g.set(103, 26, C["goldH"]); g.set(85, 32, C["red"])
+    elif name == "small_plant":
+        g.rect(87, 27, 94, 33, C["pot"]); g.hline(87, 94, 33, C["potD"])
+        g.disc(90, 24, 4, C["leaf"], squash=0.75); g.set(88, 22, C["leafL"]); g.set(92, 21, C["leafD"])
+    elif name == "sample_tubes":
+        for x, col in ((9, C["red"]), (14, C["teal"]), (19, C["gold"])):
+            g.rect(x, 27, x + 3, 34, C["grayD"]); g.rect(x + 1, 29, x + 2, 32, col); g.hline(x, x + 3, 27, C["grayL"])
+    elif name == "phone":
+        g.rect(84, 26, 92, 34, C["out"]); g.rect(85, 27, 91, 32, (89, 152, 179)); g.rect(86, 28, 90, 30, (187, 224, 210))
+        g.set(88, 32, C["grayL"])
+    elif name == "file_tray":
+        g.rect(8, 30, 24, 34, C["grayD"]); g.rect(10, 27, 22, 31, C["paper"]); g.rect(12, 26, 21, 29, C["paper"])
+        g.hline(13, 19, 28, C["red"]); g.hline(10, 22, 32, C["gray"])
+    elif name == "headphones":
+        g.line(80, 18, 80, 11, C["red"]); g.line(80, 11, 88, 8, C["red"]); g.line(88, 8, 92, 14, C["red"])
+        g.rect(78, 17, 82, 22, C["grayD"]); g.rect(90, 17, 94, 22, C["grayD"])
+        g.set(79, 18, C["red"]); g.set(91, 18, C["red"])
+    elif name == "snack":
+        g.rect(96, 27, 105, 34, (225, 148, 66)); g.hline(97, 104, 28, (255, 211, 103))
+        g.rect(98, 30, 102, 32, C["paper"]); g.set(100, 31, C["red"])
+    elif name == "desk_lamp":
+        g.rect(91, 19, 103, 23, (65, 117, 89)); g.hline(93, 101, 20, (119, 196, 130))
+        g.vline(97, 23, 31, C["gold"]); g.rect(93, 31, 101, 33, C["goldD"])
+    elif name == "toolbox":
+        g.rect(8, 28, 24, 34, (176, 62, 54)); g.rect(10, 26, 22, 29, C["redD"])
+        g.rect(12, 27, 20, 29, C["red"]); g.rect(12, 31, 20, 32, C["gold"]); g.set(15, 31, C["goldD"])
+
+
+def _desk_variant(index):
+    spec = DESK_SPECS[index]
+    body = spec["body"]
+    body_dark = spec["body_dark"]
+    body_light = spec["body_light"]
+    top = spec["top"]
+    frame = spec["frame"]
+    g = Grid(112, 70)
+    # monitor and its fixed position
+    g.rect(36, 2, 76, 26, frame)
+    g.rect(38, 4, 74, 23, C["screenD"])
+    _draw_desk_screen(g, spec["screen"])
+    g.rect(50, 27, 62, 30, C["grayD"])
+    g.rect(46, 31, 66, 33, C["gray"])
+    # shared desktop silhouette with variant finish
+    g.rect(2, 34, 109, 41, top)
+    g.hline(2, 109, 34, body_light)
+    g.hline(2, 109, 41, body_dark)
+    # keyboard, mouse, and one fixed desk-side prop
+    g.rect(30, 32, 62, 33, C["grayD"]); g.rect(30, 31, 62, 32, C["gray"])
+    for x in range(32, 61, 4):
+        g.set(x, 31, C["grayD"])
+    g.rect(80, 31, 84, 33, C["grayD"]); g.set(82, 31, C["grayL"])
+    for prop_name in spec["props"]:
+        _draw_desk_prop(g, prop_name)
+    # body, inset modesty panel, and two drawer pedestals
+    g.rect(2, 42, 109, 68, body)
+    g.rect(34, 42, 78, 62, body_dark)
+    g.rect(36, 44, 76, 60, body)
+    g.hline(36, 76, 44, body_light)
+    for px in (4, 84):
+        g.rect(px, 42, px + 24, 68, body)
+        g.vline(px, 42, 68, body_dark); g.vline(px + 24, 42, 68, body_dark)
+        for i, y in enumerate((44, 52, 60)):
+            g.rect(px + 2, y, px + 22, y + 6, body_dark)
+            g.rect(px + 3, y + 1, px + 21, y + 5, body)
+            g.hline(px + 3, px + 21, y + 1, body_light)
+            handle = C["goldH"] if index in (1, 3, 6) else C["woodH"]
+            g.rect(px + 9, y + 3, px + 15, y + 4, handle)
+    g.rect(2, 66, 109, 68, body_dark)
+    autoline(g)
+    return g
+
+
+def _save_exact_pantry_grid(g, name):
+    """Save a 47x56 source grid as the exact 752x888 scene rectangle."""
+    # The scene rectangle is 188x222 logical pixels and all project sprites
+    # are stored at 4x. A 47x56 source cell therefore expands to 16 physical
+    # pixels per source pixel before the final two-pixel height crop.
+    image = g.img.resize((752, 896), Image.Resampling.NEAREST)
+    image = image.crop((0, 0, 752, 888))
+    path = os.path.join(OUT, name)
+    image.save(path)
+    print(f"  {name}: {image.size}")
+    return image
+
+
+def _pantry_back():
+    g = Grid(47, 56)
+    wall = (235, 211, 171)
+    g.rect(0, 0, 46, 54, wall)
+    for x in (5, 15, 25, 35, 45):
+        g.vline(x, 1, 34, (222, 193, 148))
+    g.rect(0, 0, 46, 2, C["woodD"]); g.rect(0, 0, 2, 54, C["woodD"])
+    g.rect(44, 0, 46, 54, C["woodD"])
+    # backsplash and the counter behind the occlusion layer
+    g.rect(2, 34, 44, 39, C["woodD"])
+    g.rect(2, 34, 44, 36, C["woodH"])
+    # left tea cabinet
+    g.rect(3, 7, 18, 34, C["wood"]); g.rect(4, 8, 17, 33, C["woodD"])
+    g.rect(5, 10, 16, 32, C["wood"])
+    for y in (16, 23, 30):
+        g.rect(5, y, 16, y + 1, C["woodD"]); g.hline(6, 15, y, C["woodL"])
+    # cup rack and hanging cups
+    g.hline(6, 16, 12, C["goldD"]); g.hline(6, 16, 13, C["gold"])
+    for x in (7, 10, 13, 16):
+        g.rect(x, 14, x + 1, 17, C["paper"]); g.set(x + 2, 15, C["paperD"])
+    # coffee machine
+    g.rect(7, 25, 18, 35, C["grayD"]); g.rect(8, 24, 17, 27, C["gray"])
+    g.rect(10, 27, 15, 32, C["tealD"]); g.rect(11, 28, 14, 30, C["teal"])
+    g.set(9, 26, C["red"]); g.set(16, 26, C["gold"])
+    g.rect(10, 33, 16, 35, C["paper"]); g.hline(11, 15, 33, C["potD"])
+    g.set(9, 22, C["grayL"]); g.set(10, 20, C["grayL"])
+    # kettle and tea tin
+    g.rect(22, 29, 29, 35, C["goldD"]); g.disc(25, 30, 4, C["gold"], squash=0.75)
+    g.hline(22, 24, 29, C["goldH"]); g.line(28, 31, 32, 29, C["goldD"])
+    g.rect(23, 26, 27, 28, C["woodD"]); g.hline(24, 26, 26, C["gold"])
+    # fridge with magnets and handle
+    g.rect(31, 5, 43, 35, C["grayD"]); g.rect(32, 6, 42, 34, C["metal"])
+    g.hline(32, 20, 20, C["metalD"]); g.vline(40, 9, 17, C["grayD"]); g.vline(40, 23, 30, C["grayD"])
+    g.rect(34, 11, 36, 13, C["red"]); g.set(38, 9, C["teal"]); g.set(36, 26, C["gold"])
+    # small tea sign and shelf
+    g.rect(23, 8, 29, 15, C["wood"]); g.rect(24, 9, 28, 14, C["paper"])
+    g.set(26, 10, C["leaf"]); g.set(25, 11, C["leafL"]); g.set(27, 12, C["leafD"])
+    g.hline(22, 30, 18, C["woodD"]); g.hline(22, 30, 19, C["woodL"])
+    # warm floor strip behind the bar
+    g.rect(2, 39, 44, 54, C["wood"]); g.hline(2, 44, 39, C["woodL"])
+    autoline(g)
+    return g
+
+
+def _pantry_front():
+    g = Grid(47, 56)
+    # Foreground counter deliberately occupies the lower scene band so a
+    # worker drawn between back/front layers is correctly occluded.
+    g.rect(0, 35, 46, 40, C["woodD"])
+    g.rect(0, 35, 46, 37, C["woodH"])
+    g.rect(1, 40, 45, 54, C["wood"])
+    g.hline(1, 45, 40, C["woodL"]); g.hline(1, 45, 54, C["woodD"])
+    g.rect(4, 43, 17, 51, C["woodD"]); g.rect(6, 44, 15, 50, C["wood"])
+    g.rect(29, 43, 42, 51, C["woodD"]); g.rect(31, 44, 40, 50, C["wood"])
+    g.rect(21, 47, 25, 49, C["goldD"]); g.hline(22, 24, 47, C["goldH"])
+    # two foreground stools are intentionally below the bar lip
+    for x in (23, 35):
+        g.rect(x - 3, 50, x + 3, 52, C["tealD"])
+        g.vline(x, 52, 54, C["woodD"])
+        g.hline(x - 4, x + 4, 54, C["woodD"])
+    autoline(g)
+    return g
+
+
+def generate_room_assets():
+    print("time windows:")
+    for index, name in enumerate(WINDOW_NAMES):
+        g = _window_variant(index)
+        image = g.img.resize((256, 216), Image.Resampling.NEAREST)
+        image.save(os.path.join(OUT, f"window_{name}.png"))
+        print(f"  window_{name}.png: {image.size}")
+
+    print("desk variants:")
+    for index in range(8):
+        g = _desk_variant(index)
+        image = g.img.resize((448, 280), Image.Resampling.NEAREST)
+        image.save(os.path.join(OUT, f"desk_variant_{index}.png"))
+        print(f"  desk_variant_{index}.png: {image.size}")
+
+    print("tea room layers:")
+    _save_exact_pantry_grid(_pantry_back(), "pantry_back.png")
+    _save_exact_pantry_grid(_pantry_front(), "pantry_front.png")
+
+
 if __name__ == "__main__":
-    print("furniture:")
-    for name, g in PIECES.items():
-        g.save(name)
+    generate_room_assets()

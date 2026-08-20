@@ -3,8 +3,15 @@
 English | [简体中文](README_zh.md)
 
 Watch Codex subagents work in a live pixel-art office. Each subagent becomes
-an employee with a desk, a moving speech bubble, a task drawer, delivery and
-rest animations, and a visible failure state.
+an employee with a stable generated three-part appearance, a moving speech
+bubble, a task drawer, delivery and rest animations, and a visible failure
+state. Eight fixed desk setups, a pantry, distributed upper-left/lower-right
+rest areas, and a window that follows local time keep the room alive.
+
+The worker renderer combines 9 complete heads, 9 upper-body outfits, and 9
+lower-body outfits into 729 compatible appearances. Every part is drawn from
+the same 15-pose rig, so front, side, rear, seated, and prop animations share
+the same neck, waist, and foot anchors.
 
 ![Pixel Office showing several Codex subagents at work](docs/preview.png)
 
@@ -18,18 +25,20 @@ official OpenAI product.
 | `spawn_agent` starts a subagent | A new employee enters and walks to an available desk |
 | The subagent produces output | A cloud bubble follows the employee and shows the latest message |
 | You click an employee | A side drawer shows the employee name, current state, main task, and complete output history |
-| The subagent completes its task | The employee carries documents to the Boss, delivers them, and moves to a rest area |
-| An existing subagent receives more work | The employee is recalled to its desk |
-| The task fails, pauses, or is interrupted | The employee discards the documents, returns to the desk, and enters a red failed state |
-| More than eight subagents are active | Additional employees wait near the entrance with briefcases |
+| The subagent completes its task | The desk is released immediately; the employee delivers documents and waits in the lounge or pantry |
+| An existing subagent receives more work | Before clock-out, the employee keeps the same appearance and returns directly to a desk |
+| The task fails, pauses, or is interrupted | The desk is released immediately; the employee waits off-desk with a red speech bubble |
+| A terminal task reaches 30 minutes | The employee walks to the entrance, fades out, and is removed from the office |
+| More than eight subagents are active | Additional employees wait near the entrance; a freed desk is assigned automatically |
 
 The Boss displays a short speech bubble every 20-40 seconds while at least one
 employee is working.
 
 ## Requirements
 
-- macOS. The one-command installer uses `launchd`, and automatic Codex sidebar
-  registration currently targets the macOS desktop app.
+- macOS or Windows. The bundled one-command installer and persistent daemon
+  setup use macOS `launchd`; Windows installs can materialize the plugin from
+  a local Codex marketplace and let the plugin MCP start the bridge.
 - Codex desktop app and Codex CLI with plugin support.
 - Node.js 18 or newer.
 - Python 3, used by `install.sh` to update the local Codex configuration.
@@ -144,11 +153,9 @@ Pixel Office reads recent `rollout-*.jsonl` files under
 The bridge makes that content available through `/api/state` and `/events`
 without authentication, so treat port `8791` as sensitive.
 
-Current version `0.1.0` uses Node.js's default listen host, which can expose
-the bridge on other network interfaces. Do not port-forward it, expose it to
-the internet, or run it on an untrusted network without a firewall. A future
-release should bind explicitly to `127.0.0.1` and optionally add access
-controls.
+Version `0.3.0+codex.20260820` binds the bridge to `127.0.0.1` by default.
+Do not port-forward it or expose it to the internet: the local endpoints are
+still unauthenticated and may contain task text and subagent output.
 
 The bridge does not make outbound network requests. The installer does write
 the local marketplace and Codex configuration described in the Installation
@@ -201,13 +208,15 @@ python3 make_props.py
 ```
 
 Use the demo and replay modes to verify employee click targets, output-history
-updates, bubble anchors, delivery order, rest positions, recall, and failure
-animations before opening a pull request.
+updates, bubble anchors, desk promotion, delivery order, lounge/pantry
+placement, recall, failure bubbles, and clock-out removal before opening a pull
+request. Live mode waits exactly 30 minutes after a terminal event; demo mode
+uses 30 seconds, while replay mode scales the wait by replay speed.
 
 ## Current limitations
 
-- Automatic installation, persistence, and sidebar registration are currently
-  macOS-specific.
+- Automatic installation and persistent login startup are currently
+  macOS-specific; Windows uses an existing local Codex marketplace.
 - Live mode follows the newest root Codex session tree rather than showing
   multiple sessions at once.
 - Speech bubbles update once per complete logged message, not per token.

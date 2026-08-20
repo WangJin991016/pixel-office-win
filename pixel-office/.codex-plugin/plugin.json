@@ -1,7 +1,7 @@
 {
   "name": "pixel-office",
-  "version": "0.1.0+codex.20260819070854",
-  "description": "Watch Codex subagents work in a live Stardew-style pixel office: desks for subtasks, cloud speech bubbles with their streaming output, deliveries to the boss, and a lounge corner.",
+  "version": "0.3.0+codex.20260820",
+  "description": "Watch varied Codex subagents work in a live pixel office with 729 three-part appearances, unique desks, time-aware windows, waiting areas, and clock-out animations.",
   "author": {
     "name": "frankshane"
   },
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "Pixel Office",
     "shortDescription": "\u770b\u5b50\u667a\u80fd\u4f53\u5728\u50cf\u7d20\u529e\u516c\u5ba4\u91cc\u6253\u5de5",
-    "longDescription": "A live pixel-art office that mirrors Codex subagents in real time: each subagent gets a desk, streams its output in a cloud speech bubble, walks its result over to the boss when done, then rests in the lounge corner. The boss randomly shouts motivational(?) slogans.",
+    "longDescription": "A live pixel-art office that mirrors Codex subagents in real time: workers receive one of 729 compatible three-part appearances, use eight distinct desks, stream output in cloud bubbles, wait in the lounge or pantry after a terminal result, and clock out after 30 minutes. The window follows local time and the boss still shouts motivational(?) slogans.",
     "developerName": "frankshane",
     "category": "Fun",
     "capabilities": [

@@ -8,7 +8,8 @@ description: "Show Codex subagents working in a live Stardew-style pixel office 
 A local web page that mirrors Codex subagent activity in real time as a
 pixel-art office: each subagent gets a desk, streams output in a cloud speech
 bubble, delivers results to the boss (the orchestrator) at the center desk,
-then rests in the lounge corner. The boss randomly shouts slogans.
+then waits in the lounge or pantry before clocking out. The boss randomly
+shouts slogans.
 
 ## PROACTIVE BEHAVIOR (default-on)
 
@@ -65,22 +66,30 @@ node <plugin-root>/server/server.mjs --replay <rollout.jsonl> --speed 20  # repl
 
 ## What the user sees (explain briefly when asked)
 
-- 8 desks (2×4). Each spawned subagent walks in, sits at a free desk, and its
-  latest output scrolls inside the cloud bubble overhead (max 3 lines,
-  auto-scroll; click the bubble for the full text panel).
+- 8 desks (2×4), each with a distinct computer screen and desktop setup. Each
+  spawned subagent gets a stable three-part appearance assembled from 9 full
+  heads, 9 upper-body outfits, and 9 lower-body outfits (729 combinations),
+  walks in, sits at a
+  free desk, and streams its latest output inside the cloud bubble overhead
+  (max 3 lines, auto-scroll; click the employee for the full text panel).
 - On completion the worker walks the documents to the boss desk (center),
-  the boss nods, a paper lands on the pile, and the worker rests in the
-  lounge corner (chaise / cushions / coffee spots). If the same subagent gets
-  new work (`interacted` event), it gets recalled to its desk.
-- Failures: the worker throws the papers into a trash bin and slumps over the
-  desk with a red bubble.
+  the boss nods, a paper lands on the pile, and the worker waits in one of the
+  upper-left or lower-right rest spots, or inside the pantry. The desk is
+  released immediately. Thirty minutes after the
+  completion event the worker walks to the door, fades out, and leaves the
+  animation. If recalled before that deadline, the worker returns with the
+  same appearance; after clocking out, a later recall enters as a new shift.
+- Failures release the desk immediately and wait in the lounge or pantry with
+  a red bubble. They use the same 30-minute clock-out rule.
+- The window follows browser-local time across dawn, morning, noon,
+  afternoon, dusk, and night, with a short crossfade at each boundary.
 - The boss shouts one of four slogans every 20–40s while anyone is working.
 - More than 8 concurrent agents: extras wait by the door with briefcases.
 
 ## Notes
 
 - Only reads session logs; never writes to `~/.codex`.
-- Assets were extracted from user-provided reference images; the extraction
-  scripts live in `tools/` (Pillow required) and only need to run once.
+- Checked-in assets are generated programmatically by the scripts in `tools/`;
+  Pillow is required only when regenerating them, not at runtime.
 - A launchd LaunchAgent keeps the bridge running across restarts when the
   user installed it via `install.sh` (default; `--no-daemon` skips).

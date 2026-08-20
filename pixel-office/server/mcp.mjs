@@ -17,7 +17,8 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BRIDGE = path.join(__dirname, "server.mjs");
 const PORT = Number(process.env.PIXEL_OFFICE_PORT || 8791);
-const BASE = `http://localhost:${PORT}`;
+const HOST = process.env.PIXEL_OFFICE_HOST || "127.0.0.1";
+const BASE = `http://${HOST}:${PORT}`;
 
 function bridgeUp() {
   return new Promise((resolve) => {
@@ -32,7 +33,9 @@ function bridgeUp() {
 
 async function ensureBridge() {
   if (await bridgeUp()) return { started: false, running: true };
-  const child = spawn(process.execPath, [BRIDGE, "--port", String(PORT)], {
+  const child = spawn(process.execPath, [
+    BRIDGE, "--host", HOST, "--port", String(PORT),
+  ], {
     detached: true,
     stdio: "ignore",
     env: { ...process.env },
@@ -81,7 +84,7 @@ async function callTool(name) {
       running: st.running,
       justStarted: st.started,
       url: `${BASE}/`,
-      openIn: "Codex app 宿主工具 codex_app__open_in_codex({target:{type:'browser',url:'http://localhost:8791/'},placement:'right'})；若宿主工具不可用，再使用浏览器侧边栏 Local servers 或任意浏览器",
+      openIn: `Codex app 宿主工具 codex_app__open_in_codex({target:{type:'browser',url:'${BASE}/'},placement:'right'})；若宿主工具不可用，再使用任意浏览器`,
       agents: state ? state.agents : [],
       sessionLabel: state ? state.sessionLabel : "",
       demo: state ? state.demo : false,
@@ -90,8 +93,8 @@ async function callTool(name) {
   if (name === "pixel_office_demo") {
     return textResult({
       note: "演示模式需要单独进程（与实时模式端口错开或先停掉实时模式）",
-      command: `node ${JSON.stringify(BRIDGE)} --demo --port 8792`,
-      url: "http://localhost:8792/",
+      command: `node ${JSON.stringify(BRIDGE)} --demo --host ${HOST} --port 8792`,
+      url: `http://${HOST}:8792/`,
     });
   }
   throw new Error("unknown tool: " + name);
@@ -116,7 +119,7 @@ async function handle(msg) {
         result: {
           protocolVersion: (params && params.protocolVersion) || "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "pixel-office", version: "0.1.0" },
+          serverInfo: { name: "pixel-office", version: "0.3.0" },
         },
       });
       return;

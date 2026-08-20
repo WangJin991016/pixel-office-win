@@ -1,6 +1,6 @@
 # Pixel Office · 开发过程与架构交接文档
 
-> 版本：0.1.0 · 最后更新：2026-08-19
+> 版本：0.3.0+codex.20260820 · 最后更新：2026-08-20
 > 读者：接手本插件开发/维护的工程师
 > 配套阅读：[README.md](../README.md)（用户视角的安装与使用）
 
@@ -10,8 +10,9 @@
 
 pixel-office 是一个 Codex 桌面 app 插件：实时监听本机 Codex 会话日志中的
 subagent（子智能体）活动，驱动一个星露谷风格的像素办公室网页——每个子智能体
-一名员工、一张工位、头顶云朵气泡滚动它的流式输出；完成子任务后走到"老板"
-（orchestrator）的大班台前交付，然后去休息区躺椅休息。
+是一名具有稳定随机外观的员工，工作时占用八张固定工位之一，完成后立即让出
+工位、向“老板”（orchestrator）交付，并在休息区或茶水间等待；终态满
+30 分钟后走到入口淡出并从画面移除。
 
 **全部依赖：Node.js（标准库）+ Pillow（仅美术生成时用）。零 npm 依赖、零构建步骤。**
 
@@ -31,10 +32,13 @@ subagent（子智能体）活动，驱动一个星露谷风格的像素办公室
 | 技术栈 | Node.js 零依赖（`node:http` + SSE） | 不用 ws 库，避免 npm install |
 | 交付形态 | 正规插件（marketplace 注册安装） | `codex plugin list` 可见 |
 | 美术 | ~~抠图~~ → **代码手绘**（第二迭代用户要求重绘） | 抠图存在遮挡/残缺问题，已废弃 |
-| 工位 | 8 桌 2×4，超员门口排队（拎公文包） | |
+| 工位 | 8 桌 2×4，各自固定一套电脑画面和桌面配置；超员在门口排队 | 空桌仍绘制固定配置 |
 | 气泡 | 跟随员工、滚动最新 3 行、中文自动换行、绝不越界 | 硬约束 |
-| 完成后 | 交付 → 躺椅休息（ZZZ）；同 agent 新任务可召回 | |
-| 失败表现 | 扔文件进垃圾桶 → 趴桌 + 红气泡 | |
+| 完成后 | 立即释放工位 → 交付 → 休息区/茶水间；30 分钟后下班离场 | 实时模式使用绝对时间 |
+| 失败表现 | 立即释放工位 → 离岗等候 + 红气泡；30 分钟后同样下班 | 不再趴桌或扔文件 |
+| 召回 | 截止前保留外观并现场返岗；截止后按新一轮从入口进入并重抽外观 | 旧轮终态不得覆盖新轮 |
+| 外观 | 完整头部、上衣、下部各 9 套，共 729 种组合；按会话、线程、外观代次和部分稳定抽取 | Boss 不参与随机化 |
+| 窗景 | 浏览器本地时间 6 阶段，最后 10 分钟交叉淡化 | 减少动态效果时直接切换 |
 | 老板喊话 | 20–40s 随机，四句话轮换不重复，方形气泡，仅有人工作时 | 与员工云朵气泡物理隔离 |
 | 音效 | 不要 | |
 | 插件名 | pixel-office | |
@@ -174,8 +178,15 @@ node server.mjs --sessions-dir <dir>               # 自定义日志目录
 4. **子agent发现**：索引中 `isSub && parent 属于当前会话树`（支持 depth≥2
    的嵌套：parent 是已知子线程也算）→ `discoverSubagent` 建档 + tail 其文件
    （带 bornAt 过滤）。
-5. **状态机**（服务端侧最小状态，动画状态机在客户端）：
-   `working / completed / failed`；`interacted` → 视为召回（recalled）。
+5. **状态机**（服务端记录事实时间，动画状态机在客户端）：
+   `working / completed / failed`；`interacted` → 视为召回（recalled）。每轮
+   记录 `workStartedAt`，终态记录 `terminalAt` 与绝对的 `leaveAt`，迟于新一轮
+   开始时间的旧轮终态才可生效。
+6. **外观代次**：`appearanceVersion: 3`、`appearanceGeneration` 和
+   `appearance: {head, upper, lower}` 随 snapshot/SSE 下发。三个外观索引均为
+   `0..8`，由 `appearance-v3|session|thread|generation|part` 做 SHA-256 后
+   `%9`，同一轮刷新不变。客户端在读取边界把 V2 确定性转换为 V3；同代 V3
+   可以覆盖 V2，但收到 V3 后拒绝旧 V2 回退。
 
 ### 4.3 对外接口
 
@@ -183,7 +194,7 @@ node server.mjs --sessions-dir <dir>               # 自定义日志目录
 |---|---|
 | `GET /` | 办公室页面（public/index.html） |
 | `GET /assets/*` `/css/*` `/js/*` | 静态资源（路径穿越已防护） |
-| `GET /api/state` | JSON 快照：`{agents:[{id,name,state,text,task,history}], sessionActive, sessionLabel, demo}` |
+| `GET /api/state` | JSON 快照：`{agents:[{id,name,state,text,task,history,workStartedAt,terminalAt,leaveAt,appearanceVersion,appearanceGeneration,appearance}], sessionActive, sessionLabel, demo}` |
 | `GET /events` | **SSE 流**。连接即发 `snapshot`，随后增量事件 |
 
 SSE 事件类型（`data: {"type":..., "seq":N}`）：
@@ -191,20 +202,28 @@ SSE 事件类型（`data: {"type":..., "seq":N}`）：
 | type | 载荷 | 客户端行为 |
 |---|---|---|
 | `snapshot` | 同 /api/state | 全量重建（幂等） |
-| `spawn` | `{id, name, state, task}` | 新员工从门口走入并记录主要任务 |
+| `spawn` | agent 快照字段 | 新员工从门口走入并记录主要任务与外观 |
 | `task` | `{id, task}` | 补充/更新员工的主要任务 |
 | `progress` | `{id, text}` | 追加一条完整工作进展（双通道近时重复会去重） |
 | `output` | `{id, text}` | 更新气泡文本（服务端 450ms 节流，文本截断 2400 字） |
-| `state` | `{id, state, summary?}` | `completed`→交付流程；`recalled`→召回；`failed`→扔文件趴桌 |
+| `state` | `{id, state, summary?, terminalAt?, leaveAt?, appearance*?}` | `completed`→交付后等候；`recalled`→召回；`failed`→红气泡离岗等候 |
 | `session` | `{active}` | 顶部状态 pill |
 | `reset` | — | 清场（根会话切换） |
 
 ### 4.4 演示与回放
 
 - `--demo`：剧本化时间线（5 个角色、错峰 spawn、流式文本、完成/失败/召回
-  全覆盖），每轮结束 reset 循环。用于无真实会话时验收视觉效果。
+  全覆盖），终态等候 30 秒后离场，每轮结束 reset 循环。用于无真实会话时
+  验收视觉效果。
 - `--replay`：把根文件+全部子线程文件按时间戳归并单趟播放；>120s 的空档
-  压缩为 1.2s。是回归测试"数据解析→动画状态机"链路的最佳手段。
+  压缩为 1.2s，终态的 30 分钟等候按 `--speed` 同比例缩放。新版日志把
+  `spawn_agent` 包在统一工具运行器中时，回放会按子线程 `session_meta` 的出生
+  时间合成入场事实，再由真实子线程事件更新状态。它是回归测试“数据解析→动画
+  状态机”链路的最佳手段。
+
+实时模式不使用 30 分钟 `setTimeout`：客户端始终比较 `Date.now()` 与服务端
+给出的绝对 `leaveAt`，从而保证后台休眠、刷新和 SSE 重连不会重置倒计时。
+旧格式 snapshot 中没有 `leaveAt` 的终态员工按已下班处理，不再恢复到画面。
 
 ### 4.5 侧边栏自注册
 
@@ -256,21 +275,30 @@ app 浏览器侧边栏的本地服务器列表。
 ### 6.2 员工状态机（actors.js `Worker`）
 
 ```
-spawning(门口走入) → working(坐椅打字bob) 
-  → completed事件 → delivering(走到老板前排队→持文件站立→老板点头→文件堆+1)
-  → rest_walk → resting(躺椅/坐垫/咖啡位 + ZZZ)
-  ─ recalled事件 → recalled(走回工位) → working
-  ─ failed事件 → failed(走向垃圾桶→抛物线扔文件→走回) → failed_idle(趴桌+红气泡)
+spawning(入口走入) → working(坐椅打字 bob)
+  → completed事件 → 立即释放工位 → delivering(排队→交付→老板点头)
+  → waiting(休息区/茶水间)
+  ─ failed事件 → 立即释放工位 → waiting(红气泡)
+  ─ 截止前 recalled事件 → recalled(从当前位置返岗) → working
+  ─ leaveAt到期 → clockout_walk → clockout_fade → offstage(从集合移除)
+  ─ 离场后新工作 → 新外观代次，从入口重新 spawning
 ```
 
 要点：
 
-- **寻路**：L 形路径（先水平到过道，再垂直，再水平），`pathTo()` 生成航点，
-  永不穿越桌子。走路按 dx/dy 主方向选侧/正/背面帧，侧走两帧交替。
+- **寻路**：到工位使用中央过道；离开工位则按等候位编号分配独立通道。
+  左上路线从桌间安全过道上行，茶水间路线沿右边缘到入口后水平入门；固定与
+  溢出路线都不得穿桌。正面、背面和侧面走路均为两帧交替。
 - **交付队列**：`deliveryQueue` + `queueSlots[8]`，多人完成时在过道排队，
   只有队首交付。
-- **休息位分配**：`restSpots`（躺椅 1 + 坐垫 3 + 咖啡位 4）先到先得
-  （`claimRestSpot`），召回时释放。曾发生所有人叠同一点的 bug——勿回归。
+- **等候位分配**：休息区 6 位（左上 3 位、右下 3 位）+ 茶水间 6 位，按
+  `agent id + terminalAt` 稳定分流并优先取空位；12 位满后继续在左上/右下
+  交错使用溢出位，绝不回占工位或堵住茶水间入口。
+  召回或离场时必须释放位置。
+- **工位递补**：完成/失败一收到即释放 desk，并立即把入口队列中的下一人
+  促进到空位；物理工位永久绑定 `deskVariant 0..7`，不因员工或刷新重排。
+- **离场清理**：`offstage` 后从可见员工集合、交付队列、等候位、点击区域和
+  当前详情抽屉中同步清除；顶栏人数只统计仍在动画中的员工。
 - **气泡跟随员工当前 sprite**：锚点由当前姿态的底部坐标和精灵高度计算，
   员工走动、失败或休息时不会把气泡遗留在电脑/工位。交付/走向休息区途中
   仍沿用原规则隐藏云朵（拿文件的姿态本身在讲故事）。
@@ -292,9 +320,10 @@ spawning(门口走入) → working(坐椅打字bob)
 
 ### 6.4 调试钩子
 
-`window.__officeDebug()`（main.js 注册）：返回每个员工的
-name/state/x/y/waypoints/queue/zzz/visible。配合 Playwright/Safari 远程
-调试截图断言使用。
+`window.__officeDebug()`（main.js 注册）：返回每个可见员工的
+name/state/x/y/waypoints/queue/zzz/visible，以及 `appearance`、`leaveAt`、
+`waitArea`、`deskVariant`；顶层还返回当前 `windowPhase`。配合
+Playwright/Safari/Edge 远程调试截图断言使用。
 
 ---
 
@@ -331,8 +360,8 @@ pixel-office/
 2. `~/.codex/config.toml` 追加：
    `[marketplaces.local-dev] source_type="local" source="..."` +
    `[plugins."pixel-office@local-dev"] enabled=true`。
-3. `codex plugin add pixel-office@local-dev` → 物化到
-   `~/.codex/plugins/cache/local-dev/pixel-office/0.1.0/`。
+3. `codex plugin add pixel-office@local-dev` → 按清单版本物化到
+   `~/.codex/plugins/cache/local-dev/pixel-office/0.3.0+codex.20260820/`。
 4. 安装 launchd 守护。
 
 **关键坑：插件缓存必须是实体目录**。若把缓存换成软链，`codex plugin list`
@@ -355,16 +384,23 @@ boss 无站姿可用）。
 - `pixel_art.py`：`Grid` 栅格类（set/rect/hline/vline/disc/ring/line/paste/
   flip/shift）+ 全局调色板 `C` + `autoline()`（自动给剪影包 1px 深色描边）。
   小网格作画，保存时 NEAREST 放大 ×4。
-- `draw_workers.py`：员工 13 姿态（26×42 网格）。几何约定写死在文件头注释：
-  头发 1–9 行、刘海不过第 10 行、眼睛 11–15、衬衫 19–30、裤 31–38、鞋 39–41。
-  **改脸先读这个约定**——首版"头盔盖脸"事故就是刘海越界。
-- `draw_furniture.py`：办公桌/办公椅/老板三件套/书柜/窗/地板/墙纸/地毯/
-  证书/图表/垃圾桶。老板桌"总经理"桌牌用系统 CJK 字体缩小像素化
-  （`text_pixels()`）。
+- `worker_parts.py`：共享的 15 姿势骨架和 V3 直接绘制器。生成
+  `worker_part_head.png`、`worker_part_upper.png`、`worker_part_lower.png`
+  三张 `936×2880` 图集（9 列设计 × 15 行姿势，每格 `104×192`），以及包含
+  全部姿势的完整 `worker_fallback.png`。固定渲染顺序是 lower → upper → head；
+  头部整套拥有脸、发型、配饰、颈和裸露手部肤色，上衣拥有袖子和动作道具，
+  下部拥有完整长裤和鞋。三部分共用颈、腰和脚底锚点。`upper_front` /
+  `upper_back` 是桌后裁切姿势：下部单元有意透明，由上衣单元延伸到统一底锚；
+  其余 13 个姿势的下部均为完整长裤和鞋。
+- `draw_workers.py`：入口脚本；默认调用 V3 直接绘制器。旧 V2 RGB 拆层辅助函数
+  只为复现保留的回退素材，不进入运行时资源清单。
+- `draw_furniture.py`：除原办公家具外，生成 6 张窗景、固定编号的 8 张
+  `448×280` 工位图，以及茶水间后景/前景。Boss 三件套不参与重绘，哈希是
+  生成器回归测试的一部分。
 - `make_props.py`：绿植×2/空调/复印机/躺椅/挂钟/饮水机（ImageDraw 硬边图形
   + 抖动噪点）。
 - 重建：`cd tools && python3 draw_workers.py && python3 draw_furniture.py && python3 make_props.py`
-  产物直接落在 `public/assets/`（34 张 PNG）。
+  产物直接落在 `public/assets/`；运行时仍为零依赖。
 - 新增 sprite 后记得同步 `public/js/sprites.js` 的 MANIFEST 显示宽度。
 
 参考形象（用户提供）：worker.jpeg（员工）、boss.jpeg（老板）、desk.jpeg
@@ -385,8 +421,12 @@ node server/server.mjs --replay ~/.codex/sessions/2026/08/16/rollout-....jsonl -
 # 用 Playwright MCP 打开 http://localhost:8792/ 截图 + __officeDebug() 断言
 ```
 
-建议的断言点：全员到齐（agents 数）、气泡不越界（截图）、交付队列、
-休息位不重叠、ZZZ 出现、老板喊话、失败红气泡、召回回岗。
+建议的断言点：全员到齐（可见 agents 数）、工位固定配置和递补、气泡不越界
+（截图）、交付队列、12 个等候位不重叠、茶水间前景遮挡、失败红气泡、
+截止前/后召回、`29:59`/`30:00` 生命周期边界、6 个窗景边界及 10 分钟渐变。
+生成器测试还应组合全部 `729×15=10,935` 个角色姿势，并断言三部分各 9 套、
+15 个姿势、透明断层/裁切、颈腰接缝、脚底锚点、脸手肤色一致、A/B 走路帧差异、
+完整 fallback、8 张工位、6 张窗景齐全，以及 Boss 素材哈希不变。
 
 ---
 
@@ -422,31 +462,31 @@ node server/server.mjs --replay ~/.codex/sessions/2026/08/16/rollout-....jsonl -
 **方向（按价值排序）：**
 1. 失败/中断检测超时兜底（N 分钟无输出且无完成 → 标记疑似卡死）。
 2. 多会话 Tab 切换（索引里已有全部根会话，加个切换器即可）。
-3. 员工皮肤按 agent 角色换色（调色板参数化已就绪）。
-4. 抽屉输出历史按阶段折叠与筛选。
-5. 历史回放模式暴露到页面 UI（现在只有 CLI）。
+3. 抽屉输出历史按阶段折叠与筛选。
+4. 历史回放模式暴露到页面 UI（现在只有 CLI）。
 
 ---
 
 ## 13. 文件清单
 
-| 文件 | 行数 | 职责 |
-|---|---|---|
-| `server/server.mjs` | 631 | 桥接：日志索引/tail、状态机、SSE、静态服务、侧边栏注册、demo/replay |
-| `server/mcp.mjs` | 165 | 插件 MCP：拉起桥接、状态工具 |
-| `scripts/launch_pixel_office_mcp` | 34 | MCP 的 node 查找启动器 |
-| `public/js/sprites.js` | 116 | 资源清单 + LAYOUT 全部坐标 |
-| `public/js/scene.js` | 77 | 静态背景层（地板/墙/装饰） |
-| `public/js/actors.js` | 495 | 员工/老板状态机、动画、z-order、名牌 |
-| `public/js/bubbles.js` | 281 | 云朵/喊话气泡引擎、换行/滚动/裁剪 |
-| `public/js/main.js` | 195 | SSE 客户端、主循环、抽屉交互 |
-| `tools/pixel_art.py` | 143 | 像素引擎 + 调色板 |
-| `tools/draw_workers.py` | 394 | 员工 13 姿态 |
-| `tools/draw_furniture.py` | 425 | 家具/表面 13 件 |
-| `tools/make_props.py` | 214 | 小道具 8 件 |
-| `.codex-plugin/plugin.json` | — | 插件清单 |
-| `.mcp.json` | — | MCP 注册 |
-| `skills/pixel-office/SKILL.md` | — | 触发词 + 主动行为指令 |
-| `install.sh` | — | marketplace 生成 + config 注册 + plugin add + launchd |
-
-（行数为 0.1.0 基线，供变更规模参考。）
+| 文件 | 职责 |
+|---|---|
+| `server/server.mjs` | 桥接：日志索引/tail、状态机、SSE、静态服务、侧边栏注册、demo/replay |
+| `server/appearance.mjs` | V3 外观种子、版本和三部分协议 |
+| `server/mcp.mjs` | 插件 MCP：拉起桥接、状态工具 |
+| `scripts/launch_pixel_office_mcp` | MCP 的 node 查找启动器 |
+| `public/js/sprites.js` | 资源清单、三段式渲染与 LAYOUT 坐标 |
+| `public/js/scene.js` | 静态背景层、时间窗景与茶水间 |
+| `public/js/actors.js` | 员工/老板状态机、动画、V2 读取兼容、z-order、名牌 |
+| `public/js/bubbles.js` | 云朵/喊话气泡引擎、换行/滚动/裁剪 |
+| `public/js/main.js` | SSE 客户端、主循环、抽屉交互与调试状态 |
+| `tools/pixel_art.py` | 像素引擎与全局调色板 |
+| `tools/draw_workers.py` | 员工素材入口与保留的 V2 回退生成逻辑 |
+| `tools/worker_parts.py` | V3 三段式 9×9×9 外观与共享 15 姿势骨架 |
+| `tools/render_worker_catalog.py` | 15 姿势与 729 组合的视觉验收目录 |
+| `tools/draw_furniture.py` | 工位、窗景、茶水间和家具素材生成 |
+| `tools/make_props.py` | 办公室小道具生成 |
+| `.codex-plugin/plugin.json` | 插件清单 |
+| `.mcp.json` | MCP 注册 |
+| `skills/pixel-office/SKILL.md` | 触发词与主动行为指令 |
+| `install.sh` | marketplace 生成、配置注册、插件物化与 launchd |
