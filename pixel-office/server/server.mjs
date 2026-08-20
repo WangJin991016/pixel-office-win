@@ -3,7 +3,7 @@
  * pixel-office bridge server (zero-dependency Node).
  *
  * - Serves the office web page from ../public
- * - Tails ~/.codex/sessions rollout JSONL files to track subagents:
+ * - Tails %CODEX_HOME%/sessions rollout JSONL files to track subagents:
  *     root file:  spawn_agent calls, sub_agent_activity events
  *     agent file: assistant messages (streaming output), task_complete
  * - Pushes state to the page over SSE.
@@ -906,48 +906,6 @@ const MIME = {
   ".jpg": "image/jpeg", ".svg": "image/svg+xml", ".json": "application/json",
 };
 
-// ------------------------------------------------- sidebar self-registration
-// The Codex desktop app keeps its browser-sidebar local-server list in
-// browser-sidebar-local-servers.json. Register ourselves so the office entry
-// shows up in the sidebar without any manual step (best-effort, never fatal).
-function registerSidebar() {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="240" height="150" viewBox="0 0 240 150"><rect width="240" height="150" rx="10" fill="#7a4e2d"/><rect x="18" y="18" width="204" height="114" rx="8" fill="#c88a4e"/><rect x="30" y="46" width="60" height="40" rx="2" fill="#5b3a20"/><rect x="36" y="30" width="48" height="20" rx="2" fill="#2f6b2f"/><rect x="150" y="40" width="56" height="46" rx="2" fill="#5b3a20"/><rect x="156" y="28" width="44" height="16" rx="2" fill="#4a7fb5"/><text x="30" y="116" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="15" font-weight="600" fill="#fffdf2">Pixel Office</text><text x="30" y="130" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif" font-size="10" fill="#ffe9c9">localhost:${PORT}</text></svg>`;
-  const entry = {
-    hiddenRouteUrls: [],
-    lastOpenedAt: null,
-    lastRunningAt: Date.now(),
-    lastSeenAt: Date.now(),
-    previewImageDataUrl: "data:image/svg+xml;base64," + Buffer.from(svg).toString("base64"),
-    routes: [],
-    title: "Pixel Office · 子智能体办公室",
-    url: `http://localhost:${PORT}/`,
-  };
-  const dirs = ["Codex", "Codex (Dev)"];
-  for (const d of dirs) {
-    const file = path.join(os.homedir(), "Library", "Application Support", d,
-      "browser-sidebar-local-servers.json");
-    try {
-      if (!fs.existsSync(file)) continue;
-      const data = JSON.parse(fs.readFileSync(file, "utf8"));
-      if (!Array.isArray(data.servers)) data.servers = [];
-      const i = data.servers.findIndex(s => s && s.url === entry.url);
-      if (i >= 0) {
-        data.servers[i] = { ...data.servers[i],
-          lastRunningAt: entry.lastRunningAt, lastSeenAt: entry.lastSeenAt,
-          title: entry.title, previewImageDataUrl: data.servers[i].previewImageDataUrl || entry.previewImageDataUrl };
-      } else {
-        data.servers.push(entry);
-      }
-      const tmp = file + ".pixel-office-tmp";
-      fs.writeFileSync(tmp, JSON.stringify(data));
-      fs.renameSync(tmp, file);
-      console.log(`[pixel-office] sidebar registered in ${d}`);
-    } catch (e) {
-      console.warn(`[pixel-office] sidebar registration skipped (${d}):`, e.message);
-    }
-  }
-}
-
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://x");
   if (url.pathname === "/events") {
@@ -955,7 +913,6 @@ const server = http.createServer((req, res) => {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
-      "Access-Control-Allow-Origin": "*",
     });
     res.write(`data: ${JSON.stringify({ type: "snapshot", ...snapshot() })}\n\n`);
     sseClients.add(res);
@@ -981,7 +938,6 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`[pixel-office] 办公室开张 → http://${HOST}:${PORT}`);
-  registerSidebar();
   if (DEMO) runDemo();
   else if (REPLAY) replay(REPLAY, SPEED);
   else {

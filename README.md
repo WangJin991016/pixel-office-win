@@ -1,281 +1,245 @@
-# Pixel Office
+# Pixel Office for Windows
 
-English | [简体中文](README_zh.md)
+> 把 Codex 子代理的实时工作状态变成一间会走动、交付、休息和下班的像素办公室。
 
-> **Windows/Codex release:** the maintained plugin source is in
-> [`pixel-office/`](pixel-office/). See its [installation and usage guide](pixel-office/README.md)
-> for version `0.3.1+codex.20260820`.
+**当前版本：** `0.3.2+codex.20260820`
 
-Watch Codex subagents work in a live pixel-art office. Each subagent becomes
-an employee with a desk, a moving speech bubble, a task drawer, delivery and
-rest animations, and a visible failure state.
+**支持平台：** Windows 10 / Windows 11
 
-![Pixel Office showing several Codex subagents at work](docs/preview.png)
+**项目定位：** Codex Desktop 社区插件，不是 OpenAI 官方产品
 
-Pixel Office is a community project for the Codex desktop app. It is not an
-official OpenAI product.
+![Pixel Office for Windows](pixel-office/docs/preview.png)
 
-## What it does
+## 主要功能
 
-| Codex event | Office behavior |
-| --- | --- |
-| `spawn_agent` starts a subagent | A new employee enters and walks to an available desk |
-| The subagent produces output | A cloud bubble follows the employee and shows the latest message |
-| You click an employee | A side drawer shows the employee name, current state, main task, and complete output history |
-| The subagent completes its task | The employee carries documents to the Boss, delivers them, and moves to a rest area |
-| An existing subagent receives more work | The employee is recalled to its desk |
-| The task fails, pauses, or is interrupted | The employee discards the documents, returns to the desk, and enters a red failed state |
-| More than eight subagents are active | Additional employees wait near the entrance with briefcases |
+- 实时读取当前 Codex 任务树中的 subagent 生命周期和完整消息。
+- 8 个固定工位，每张桌子都有独立的电脑画面和桌面配置。
+- 角色由 9 套头部、9 套上衣和 9 套下部自由组合，共 729 种稳定外观。
+- 15 套统一姿势覆盖正面、侧面、背面、坐姿、走路、文件、咖啡和手提箱动作。
+- 完成任务后立即释放工位，向 Boss 交付文件，再前往休息区或茶水间。
+- 失败任务同样立即释放工位，并在等候期间显示红色气泡。
+- 完成或失败满 30 分钟后，员工走向入口、淡出并从画面移除。
+- 截止前被召回时保留外观并直接返岗；下班后再次工作会以新班次重新入场。
+- 超过 8 名活跃代理时，额外员工使用不重叠的入口队列；空出工位后自动递补。
+- 大量代理同时交付时，队列会向左右平行扩展，不会堆叠在同一坐标。
+- 窗外景色按照浏览器本地时间切换清晨、上午、中午、下午、傍晚和夜晚。
+- 点击员工可以查看任务、当前状态以及完整输出历史。
 
-The Boss displays a short speech bubble every 20-40 seconds while at least one
-employee is working.
+Pixel Office 只观察已经由 Codex 创建的子代理，不会自行启动或控制代理。
 
-## Requirements
+## 环境要求
 
-- macOS. The one-command installer uses `launchd`, and automatic Codex sidebar
-  registration currently targets the macOS desktop app.
-- Codex desktop app and Codex CLI with plugin support.
-- Node.js 18 or newer.
-- Python 3, used by `install.sh` to update the local Codex configuration.
-- Port `8791` available for the live bridge. Demo mode can use another port.
+- Windows 10 或 Windows 11。
+- 支持插件的 Codex Desktop 与 Codex CLI。
+- Node.js 18 或更高版本。
+- Git，用于让 Codex 获取 GitHub marketplace。
+- 本机端口 `8791` 可用。
 
-Pillow is only required when regenerating the pixel-art assets. It is not
-needed to install or run the plugin.
+正常安装和运行不需要 npm 依赖、Python 或 Pillow。只有重新生成像素素材时才需要 Python 与 Pillow。
 
-## Installation
+本项目只面向 Windows 维护和测试，不提供 macOS 或 Linux 安装支持。
 
-Clone or download this repository, then run:
+## 从 GitHub 安装
 
-```bash
-cd pixel-office
-./install.sh
+在 PowerShell 中运行：
+
+```powershell
+codex plugin marketplace add WangJin991016/pixel-office-win --ref main
+codex plugin add pixel-office@pixel-office-win
 ```
 
-The installer performs the following local changes:
+随后完全关闭并重新打开 Codex Desktop，再新建一个任务，使插件的 skill 与 MCP server 重新加载。
 
-1. Creates a `local-dev` marketplace in a sibling `local-marketplace`
-   directory and points it at this source tree.
-2. Registers that marketplace and enables `pixel-office@local-dev` in
-   `~/.codex/config.toml`.
-3. Runs `codex plugin add pixel-office@local-dev` to materialize the plugin in
-   the Codex cache.
-4. Installs the `ai.pixeloffice.bridge` LaunchAgent so the bridge starts at
-   login and restarts after a crash.
+检查 marketplace 和插件是否已经识别：
 
-Review [`install.sh`](install.sh) before running it if you do not want those
-configuration changes. To install without the persistent LaunchAgent, use:
-
-```bash
-./install.sh --no-daemon
+```powershell
+codex plugin marketplace list
+codex plugin list
 ```
 
-After installation, start a **new Codex thread** so the app loads the plugin's
-skill and MCP server.
+如果你设置了自定义 `CODEX_HOME`，请确保 PowerShell 与 Codex Desktop 使用同一个环境配置。
 
-## Usage
+## 使用方法
 
-No Pixel Office prompt is required. When a Codex conversation starts
-subagents, the plugin asks Codex to ensure the bridge is running and open
-`http://localhost:8791/` in the app's right sidebar. The bridge also registers
-Pixel Office in the sidebar's local-server list as a fallback.
+无需在提示词中专门提到 Pixel Office。只要当前 Codex 任务启动了 subagents，插件就会：
 
-Pixel Office observes subagents; it does not create them. Start a task that
-uses Codex collaboration/subagents. Employees will appear as those subagents
-start working.
+1. 通过 MCP 确保本地桥接服务已经运行。
+2. 读取当前 `CODEX_HOME\sessions` 下最新任务树的 rollout 日志。
+3. 在 `http://127.0.0.1:8791/` 提供办公室页面。
+4. 请求 Codex Desktop 在右侧浏览器区域打开该页面。
 
-If the sidebar does not open automatically, open the local-server entry named
-**Pixel Office · 子智能体办公室** or visit:
+如果右侧页面没有自动出现，直接在浏览器中打开：
 
-<http://localhost:8791/>
+<http://127.0.0.1:8791/>
 
-Click an employee, not its speech bubble, to open the detail drawer. The
-drawer updates in real time and contains the employee's task plus every output
-message observed for that subagent.
+检查桥接状态：
 
-## Manual and demo modes
-
-The bridge has no npm dependencies or build step.
-
-```bash
-# Live mode: read Codex session logs and serve the office
-node server/server.mjs --port 8791
-
-# Demo mode: run a loop of scripted employees without a Codex task
-node server/server.mjs --demo --port 8792
-
-# Replay one root rollout together with its discovered subagent rollouts
-node server/server.mjs --replay /path/to/rollout.jsonl --speed 20
+```powershell
+Invoke-RestMethod http://127.0.0.1:8791/api/state
 ```
 
-Open <http://localhost:8792/> for the demo. To check whether the live bridge
-is already running:
-
-```bash
-curl http://localhost:8791/api/state
-```
-
-## Architecture
+## 生命周期
 
 ```text
-~/.codex/sessions/**/rollout-*.jsonl
-        |
-        | incremental, read-only polling
-        v
-server/server.mjs
-        | parses collaboration and subagent lifecycle events
-        | exposes snapshot JSON and Server-Sent Events
-        v
-public/
-        | Canvas 2D scene, animation state machine, bubbles, and detail drawer
-        v
-Codex right sidebar or a regular browser
+进入办公室
+  ├─ 有空位 → 入座工作
+  └─ 无空位 → 在入口唯一位置等候 → 自动递补
+
+工作
+  ├─ 完成 → 立即释放工位 → 排队交付 → 休息区或茶水间
+  └─ 失败 → 立即释放工位 → 红色气泡 → 休息区或茶水间
+
+终态等候
+  ├─ 30 分钟内召回 → 保留外观并返岗
+  └─ 满 30 分钟 → 走向入口 → 淡出 → 从画面移除
 ```
 
-- The bridge uses only Node.js standard-library modules.
-- The frontend uses plain HTML, CSS, JavaScript, and Canvas 2D.
-- Updates follow complete messages written to rollout logs; they are not
-  token-by-token streaming.
-- The bridge reads Codex rollout files but does not write to `~/.codex`.
+实时模式严格等待 30 分钟。演示模式使用 30 秒，回放模式会按照回放倍速缩放等待时间。
 
-See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md) for the event formats, state
-machine, rendering architecture, installation internals, asset pipeline, and
-regression checklist.
+## 手动运行与演示
 
-## Data and security
+克隆仓库：
 
-Pixel Office reads recent `rollout-*.jsonl` files under
-`~/.codex/sessions`. Those files can contain task prompts and subagent output.
-The bridge makes that content available through `/api/state` and `/events`
-without authentication, so treat port `8791` as sensitive.
+```powershell
+git clone https://github.com/WangJin991016/pixel-office-win.git
+Set-Location .\pixel-office-win\pixel-office
+```
 
-Current version `0.1.0` uses Node.js's default listen host, which can expose
-the bridge on other network interfaces. Do not port-forward it, expose it to
-the internet, or run it on an untrusted network without a firewall. A future
-release should bind explicitly to `127.0.0.1` and optionally add access
-controls.
+启动实时模式：
 
-The bridge does not make outbound network requests. The installer does write
-the local marketplace and Codex configuration described in the Installation
-section, and the running bridge updates the Codex sidebar's local-server
-registry on a best-effort basis.
+```powershell
+node .\server\server.mjs --host 127.0.0.1 --port 8791
+```
 
-Recent Codex builds may encrypt the `message` argument passed to
-`spawn_agent` in rollout logs. When that happens, Pixel Office cannot display
-the full original prompt and falls back to `task_name` as the main task.
+启动循环演示：
 
-## Project structure
+```powershell
+node .\server\server.mjs --demo --host 127.0.0.1 --port 8792
+```
+
+回放一棵历史任务树：
+
+```powershell
+node .\server\server.mjs --replay "A:\path\to\rollout.jsonl" --speed 20
+```
+
+读取其他会话目录：
+
+```powershell
+node .\server\server.mjs --sessions-dir "A:\path\to\sessions" --port 8791
+```
+
+实时页面默认是 <http://127.0.0.1:8791/>，演示页面默认是 <http://127.0.0.1:8792/>。
+
+## 更新
+
+```powershell
+codex plugin marketplace upgrade pixel-office-win
+codex plugin add pixel-office@pixel-office-win
+```
+
+更新后重新启动 Codex Desktop，并新建一个任务。Codex 会把插件版本物化到本地缓存，因此只更新 Git 仓库不会改变已经加载的旧任务。
+
+## 卸载
+
+```powershell
+codex plugin remove pixel-office@pixel-office-win
+codex plugin marketplace remove pixel-office-win
+```
+
+如果你曾经手动启动桥接服务，可以在任务管理器中结束对应的 `node.exe`，或者在启动它的 PowerShell 窗口中按 `Ctrl+C`。
+
+## 数据与安全
+
+Pixel Office 需要读取 Codex rollout 日志才能展示代理名称、任务文本和输出：
 
 ```text
-pixel-office/
-├── .codex-plugin/plugin.json       Codex plugin manifest
-├── .mcp.json                       MCP server registration
-├── skills/pixel-office/            Implicit invocation and sidebar behavior
-├── server/server.mjs               Rollout parser, state bridge, SSE, static server
-├── server/mcp.mjs                  MCP status tool and bridge bootstrap
-├── public/                         Canvas office, drawer UI, and generated PNG assets
-├── tools/                          Pillow-based pixel-art generators
-├── docs/DEVELOPMENT.md             Architecture and development notes
-└── install.sh                      Local marketplace and macOS installer
+%CODEX_HOME%\sessions\**\rollout-*.jsonl
 ```
 
-## Development
+未设置 `CODEX_HOME` 时，服务会退回使用 `%USERPROFILE%\.codex\sessions`。
 
-Run the deterministic demo on a separate port while editing the frontend:
+- 桥接服务只读会话日志，不会修改 rollout 文件。
+- 默认只绑定 `127.0.0.1`。
+- `/api/state` 和 `/events` 没有身份验证，可能包含任务提示词和代理输出。
+- 不要把 `8791` 端口转发到局域网或互联网。
+- 服务本身不会主动向外部网络发送会话内容。
+- 新版 Codex 可能加密 `spawn_agent.message`；此时主任务文本会退回显示 `task_name`。
 
-```bash
-node server/server.mjs --demo --port 8792
+## 技术结构
+
+```text
+Codex rollout JSONL（只读）
+          │
+          ▼
+pixel-office/server/server.mjs
+  ├─ 解析任务树与代理生命周期
+  ├─ GET /api/state
+  ├─ GET /events（SSE）
+  └─ 提供 public/ 静态资源
+          │
+          ▼
+原生 HTML + CSS + JavaScript + Canvas 2D
+          │
+          ▼
+Codex Desktop 右侧浏览器或普通浏览器
 ```
 
-After changing plugin source, update the Codex cache and restart the bridge:
+运行时只使用 Node.js 标准库，前端没有框架，也没有构建步骤。
 
-```bash
-./install.sh
-launchctl kickstart -k "gui/$(id -u)/ai.pixeloffice.bridge"
+## 项目目录
+
+```text
+.
+├─ .agents/plugins/marketplace.json   GitHub marketplace 清单
+├─ README.md                          Windows 主文档
+└─ pixel-office/
+   ├─ .codex-plugin/plugin.json       插件清单
+   ├─ .mcp.json                       MCP server 注册
+   ├─ skills/pixel-office/            自动触发与打开办公室
+   ├─ server/                         日志桥接、状态机、SSE
+   ├─ public/                         页面、动画和生成后的 PNG
+   ├─ tools/                          像素素材生成器
+   ├─ tests/                          生命周期、场景、素材和浏览器测试
+   └─ docs/DEVELOPMENT.md             Windows 开发说明
 ```
 
-Regenerate the checked-in pixel-art PNG files only when changing the art
-pipeline:
+## 开发与测试
 
-```bash
-python3 -m pip install Pillow
-cd tools
-python3 draw_workers.py
-python3 draw_furniture.py
-python3 make_props.py
+```powershell
+Set-Location .\pixel-office
+
+node --test `
+  .\tests\server-appearance-03.test.mjs `
+  .\tests\client-lifecycle-02.test.cjs
+
+node .\tests\scene-render-02.test.cjs
+py -3 .\tests\assets-02.test.py
 ```
 
-Use the demo and replay modes to verify employee click targets, output-history
-updates, bubble anchors, delivery order, rest positions, recall, and failure
-animations before opening a pull request.
+浏览器回归测试需要单独提供 Playwright 模块和可用的 Chromium/Edge 路径。建议先在 `8792` 启动演示服务，再运行 `tests/browser-render-03.test.cjs`。
 
-## Current limitations
+仅在修改素材生成器时安装 Pillow 并重建图片：
 
-- Automatic installation, persistence, and sidebar registration are currently
-  macOS-specific.
-- Live mode follows the newest root Codex session tree rather than showing
-  multiple sessions at once.
-- Speech bubbles update once per complete logged message, not per token.
-- If a subagent process disappears without a failure, interruption, or
-  completion event in the rollout, it can remain shown as working because
-  there is no inactivity timeout yet.
-- Automatic sidebar opening depends on Codex host capabilities. The registered
-  local-server entry and direct URL remain available as fallbacks.
-
-## Troubleshooting
-
-**The office opens but no employees appear**
-
-Live mode only displays the newest Codex session tree, and that thread must
-actually start subagents. Use demo mode to verify the UI independently.
-
-**Port 8791 is already in use**
-
-```bash
-curl http://localhost:8791/api/state
-lsof -nP -iTCP:8791 -sTCP:LISTEN
+```powershell
+py -3 -m pip install Pillow
+Set-Location .\tools
+py -3 .\draw_workers.py
+py -3 .\draw_furniture.py
+py -3 .\make_props.py
 ```
 
-If the first command returns Pixel Office state, the existing bridge is the
-expected process and a second server is unnecessary.
+生成器会检查三段式图集、729 种组合、15 个姿势、8 套工位、6 张窗景和 Boss 素材稳定性。详细架构和回归清单见 [开发文档](pixel-office/docs/DEVELOPMENT.md)。
 
-**The installed plugin does not reflect source changes**
+## 当前限制
 
-Run `./install.sh` again, then start a new Codex thread. Codex materializes a
-plugin cache; editing this repository does not automatically update an
-already-loaded conversation.
+- 只跟踪最新的一棵 Codex 根任务树，不会同时展示多个任务。
+- 气泡按照 rollout 中写入的完整消息更新，不是逐 token 流式。
+- 如果代理进程消失且没有留下完成、失败或中断事件，它可能继续显示为工作中。
+- 自动打开右侧页面依赖 Codex Desktop 的宿主能力；直接 URL 始终可用。
 
-**The task drawer shows only a short task name**
+## 贡献与许可
 
-The full `spawn_agent.message` may be encrypted in the local rollout. Pixel
-Office uses `task_name` as the safe fallback.
+欢迎提交带有复现步骤和验证结果的 issue 或 pull request。行为修改至少应验证生命周期测试、场景测试、素材测试以及演示模式。
 
-**The LaunchAgent fails to start**
-
-Inspect `/tmp/pixel-office.log`, then verify that `node` is available in your
-shell and that port `8791` is free.
-
-## Uninstall
-
-Remove the materialized plugin and stop the persistent bridge:
-
-```bash
-codex plugin remove pixel-office@local-dev
-launchctl bootout "gui/$(id -u)/ai.pixeloffice.bridge"
-rm "$HOME/Library/LaunchAgents/ai.pixeloffice.bridge.plist"
-```
-
-Then remove the `[marketplaces.local-dev]` and
-`[plugins."pixel-office@local-dev"]` sections from `~/.codex/config.toml` if
-that marketplace is no longer used. The installer also created the sibling
-`local-marketplace` directory; remove it only after confirming it contains no
-other plugins you need.
-
-## Contributing
-
-Issues and focused pull requests are welcome. For behavior changes, include a
-short reproduction and verify both demo mode and a real or replayed subagent
-session. Keep generated assets and their source scripts in sync.
-
-## License
-
-Licensed under the [MIT License](LICENSE).
+项目采用 [MIT License](pixel-office/LICENSE)。原始 Pixel Office 由 [frankshane](https://github.com/frankshane) 创建；本仓库维护 Windows/Codex 版本及后续视觉、生命周期与队列改进。

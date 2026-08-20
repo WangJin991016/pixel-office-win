@@ -20,15 +20,16 @@ or mention Pixel Office:**
 1. Call the `pixel_office_status` MCP tool (provided by this plugin). It
    ensures the bridge server is running and returns the office URL.
    If the MCP tool is unavailable, ensure the server directly:
-   `node <plugin-root>/server/server.mjs --port 8791` in the background
-   (check `curl -s http://localhost:8791/api/state` first; only start if down).
+   `node <plugin-root>\server\server.mjs --host 127.0.0.1 --port 8791` in the
+   background (check `Invoke-RestMethod http://127.0.0.1:8791/api/state`
+   first; only start if down).
 2. After the bridge is confirmed (including after the direct fallback), open
    the page in the Codex app's right sidebar exactly once per conversation by
    calling the host tool:
 
    ```js
    tools.codex_app__open_in_codex({
-     target: { type: "browser", url: "http://localhost:8791/" },
+     target: { type: "browser", url: "http://127.0.0.1:8791/" },
      placement: "right"
    })
    ```
@@ -36,10 +37,9 @@ or mention Pixel Office:**
    Do this automatically as soon as the first subagent is started (or just
    before the first `spawn_agent` call); do not wait for a manual click or a
    user request. If the host tool is unavailable, keep the bridge running and
-   rely on its registered Local servers entry instead.
-3. Tell the user once, briefly: the pixel office is live at
-   http://localhost:8791/ and is listed in the app's browser sidebar under
-   local servers. Do not repeat this on every turn.
+   give the user the direct `http://127.0.0.1:8791/` URL.
+3. Tell the user once, briefly that the pixel office is live at
+   http://127.0.0.1:8791/. Do not repeat this on every turn.
 
 ## When to use
 
@@ -52,16 +52,18 @@ or mention Pixel Office:**
 
 The page needs the bundled zero-dependency Node server:
 
-```bash
-node <plugin-root>/server/server.mjs --port 8791      # real-time mode
-node <plugin-root>/server/server.mjs --demo --port 8792   # demo mode (fake agents)
-node <plugin-root>/server/server.mjs --replay <rollout.jsonl> --speed 20  # replay a past session
+```powershell
+node <plugin-root>\server\server.mjs --host 127.0.0.1 --port 8791
+node <plugin-root>\server\server.mjs --demo --host 127.0.0.1 --port 8792
+node <plugin-root>\server\server.mjs --replay <rollout.jsonl> --speed 20
 ```
 
 - `<plugin-root>` is the directory containing this skill's `skills/` folder.
-- Real-time mode (default): tails `~/.codex/sessions/**/rollout-*.jsonl` and
-  pushes `spawn_agent` / `sub_agent_activity` / agent output events over SSE.
-- If port 8791 is in use, check `curl -s http://localhost:8791/api/state` —
+- Real-time mode (default): tails `%CODEX_HOME%\sessions\**\rollout-*.jsonl`
+  (or `%USERPROFILE%\.codex\sessions` when `CODEX_HOME` is unset) and pushes
+  `spawn_agent` / `sub_agent_activity` / agent output events over SSE.
+- If port 8791 is in use, check
+  `Invoke-RestMethod http://127.0.0.1:8791/api/state` —
   it is almost always this server already running.
 
 ## What the user sees (explain briefly when asked)
@@ -84,12 +86,15 @@ node <plugin-root>/server/server.mjs --replay <rollout.jsonl> --speed 20  # repl
 - The window follows browser-local time across dawn, morning, noon,
   afternoon, dusk, and night, with a short crossfade at each boundary.
 - The boss shouts one of four slogans every 20–40s while anyone is working.
-- More than 8 concurrent agents: extras wait by the door with briefcases.
+- More than 8 concurrent agents: extras claim unique entrance positions with
+  briefcases and are promoted as desks free up. Large delivery groups expand
+  into unique parallel queue lanes.
 
 ## Notes
 
-- Only reads session logs; never writes to `~/.codex`.
+- This plugin release supports Windows 10 and Windows 11 only.
+- Only reads session logs; never writes to `CODEX_HOME`.
 - Checked-in assets are generated programmatically by the scripts in `tools/`;
   Pillow is required only when regenerating them, not at runtime.
-- A launchd LaunchAgent keeps the bridge running across restarts when the
-  user installed it via `install.sh` (default; `--no-daemon` skips).
+- The plugin MCP starts the bridge on demand through `.mcp.json`; no background
+  Windows service or login task is installed.

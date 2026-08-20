@@ -1,7 +1,7 @@
 {
   "name": "pixel-office",
-  "version": "0.3.1+codex.20260820",
-  "description": "Watch varied Codex subagents work in a live pixel office with 729 three-part appearances, unique desks, time-aware windows, waiting areas, and clock-out animations.",
+  "version": "0.3.2+codex.20260820",
+  "description": "A Windows-only live pixel office for Codex subagents, with 729 appearances, eight desks, overflow queues, rest areas, and clock-out animations.",
   "author": {
     "name": "frankshane"
   },
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "Pixel Office",
     "shortDescription": "\u770b\u5b50\u667a\u80fd\u4f53\u5728\u50cf\u7d20\u529e\u516c\u5ba4\u91cc\u6253\u5de5",
-    "longDescription": "A live pixel-art office that mirrors Codex subagents in real time: workers receive one of 729 compatible three-part appearances, use eight distinct desks, stream output in cloud bubbles, wait in the lounge or pantry after a terminal result, and clock out after 30 minutes. The window follows local time and the boss still shouts motivational(?) slogans.",
+    "longDescription": "A Windows-only live pixel-art office that mirrors Codex subagents in real time: workers receive one of 729 compatible three-part appearances, use eight distinct desks, stream output in cloud bubbles, wait in the lounge or pantry after a terminal result, and clock out after 30 minutes. Overflow queues keep additional active and delivering workers separated.",
     "developerName": "frankshane",
     "category": "Fun",
     "capabilities": [
