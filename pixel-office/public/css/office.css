@@ -51,6 +51,17 @@ body {
 .pill-warn { background: #5b4a1c; border-color: #d9a821; color: #ffe9a0; }
 .pill-err  { background: #57231e; border-color: #c0453a; color: #ffc9c2; }
 .pill-dim  { opacity: .85; }
+.topbar-button {
+  padding: 2px 10px; border: 1px solid #5b3f28; border-radius: 999px;
+  background: #3c2b1c; color: #ffe9c9; font: inherit; line-height: 18px;
+  white-space: nowrap; cursor: pointer;
+}
+.topbar-button:hover, .topbar-button:focus-visible {
+  background: #5b3f28; border-color: #d9a821; outline: none;
+}
+.topbar-button[aria-pressed="false"] {
+  background: #4d3640; border-color: #b98672; color: #ffe1d4;
+}
 
 #stage-wrap { position: relative; flex: 1 1 auto; display: flex; min-height: 0; }
 #stage {

@@ -142,6 +142,8 @@ def main() -> None:
         columns = [image.crop((i * 104, 0, (i + 1) * 104, 2880)) for i in range(9)]
         assert len({column.tobytes() for column in columns}) == 9, category
     open_rgba("worker_fallback.png", (104, 2880))
+    open_rgba("boss_pet.png", (768, 768))
+    open_rgba("company_gate.png", (176, 40))
 
     # The complete fallback is exactly v3 appearance 0/0/0 for every pose.
     for row in range(15):
@@ -233,7 +235,7 @@ def main() -> None:
     for name, expected in EXPECTED_BOSS_HASHES.items():
         assert digest(ASSETS / name) == expected, name
 
-    print("assets-03: ok (3x9 modules, 729 combinations, 15 poses, scene/Boss unchanged)")
+    print("assets-03: ok (3x9 modules, 729 combinations, 15 poses, pet boss and company gate)")
 
 
 if __name__ == "__main__":

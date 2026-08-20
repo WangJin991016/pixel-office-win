@@ -31,6 +31,34 @@ async function main() {
       && typeof window.__officeDebug === "function"
     ));
 
+    const bossControl = await page.evaluate(() => {
+      const button = document.getElementById("boss-sprite-btn");
+      if (!button) return null;
+      const initial = {
+        text: button.textContent,
+        pressed: button.getAttribute("aria-pressed"),
+      };
+      button.click();
+      const toggled = {
+        text: button.textContent,
+        pressed: button.getAttribute("aria-pressed"),
+      };
+      button.click();
+      return {
+        initial,
+        toggled,
+        restored: {
+          text: button.textContent,
+          pressed: button.getAttribute("aria-pressed"),
+        },
+      };
+    });
+    assert.deepEqual(bossControl, {
+      initial: { text: "更换总经理", pressed: "true" },
+      toggled: { text: "更换总经理", pressed: "false" },
+      restored: { text: "更换总经理", pressed: "true" },
+    });
+
     const result = await page.evaluate(() => {
       const poses = [
         "stand_front", "stand_side", "stand_back", "walk_front", "walk_front_b",

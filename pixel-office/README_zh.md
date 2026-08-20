@@ -1,6 +1,6 @@
 # Pixel Office for Windows
 
-当前版本：`0.3.2+codex.20260820`。本仓库只支持 Windows 10 / Windows 11。
+当前版本：`0.3.3+codex.20260820`。本仓库只支持 Windows 10 / Windows 11。
 
 完整中文安装、更新、使用、安全与开发说明请查看：
 

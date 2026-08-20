@@ -154,6 +154,8 @@ for (const category of WORKER_APPEARANCE_CATEGORIES) {
   assert.ok(SPRITE_MANIFEST["worker_part_" + category]);
 }
 for (const desk of DESK_VARIANTS) assert.ok(SPRITE_MANIFEST[desk]);
+assert.deepEqual(SPRITE_MANIFEST.boss_pet.slice(1), [96, 768, 768]);
+assert.deepEqual(SPRITE_MANIFEST.company_gate.slice(1), [176, 176, 40]);
 assert.equal(typeof SPRITES.drawWorker, "function");
 
 console.log("scene-render-02: ok");

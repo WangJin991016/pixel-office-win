@@ -243,6 +243,28 @@ def boss_desk():
     return g
 
 
+# ---------------------------------------------------------------- entrance
+def company_gate():
+    """only the top door frame visible at the bottom edge (44x10 grid)"""
+    g = Grid(44, 10)
+    # In this top-down room view the door leaf is below the canvas. Keep only
+    # its upper lintel, a shallow recess, and the two frame ends on screen.
+    g.rect(4, 2, 39, 8, C["out"])
+    g.rect(6, 3, 37, 8, C["woodD"])
+    g.rect(9, 4, 34, 7, C["wood"])
+    g.rect(11, 0, 32, 4, C["out"])
+    g.rect(13, 1, 30, 3, C["gold"])
+    g.rect(17, 2, 20, 3, C["navyD"])
+    g.rect(21, 2, 23, 3, C["redD"])
+    g.rect(24, 2, 27, 3, C["tealD"])
+    g.rect(7, 6, 12, 9, C["woodL"])
+    g.rect(31, 6, 36, 9, C["woodL"])
+    g.rect(12, 7, 31, 9, C["out"])
+    g.hline(8, 35, 9, C["woodH"])
+    autoline(g)
+    return g
+
+
 # ---------------------------------------------------------------- bookshelf
 def bookshelf():
     g = Grid(52, 100)
@@ -785,6 +807,9 @@ def _pantry_front():
 
 
 def generate_room_assets():
+    print("company entrance frame:")
+    company_gate().save("company_gate.png")
+
     print("time windows:")
     for index, name in enumerate(WINDOW_NAMES):
         g = _window_variant(index)

@@ -1,6 +1,6 @@
 # Pixel Office for Windows — 开发文档
 
-> 版本：`0.3.2+codex.20260820`
+> 版本：`0.3.3+codex.20260820`
 >
 > 平台：Windows 10 / Windows 11
 >
@@ -32,6 +32,8 @@ Pixel Office 是 Codex Desktop 的只读可视化插件。它观察最新的 Cod
    ├─ tools/                          Python/Pillow 素材生成器
    └─ tests/                          Node、Python 与浏览器测试
 ```
+
+Boss 视觉使用 `public/assets/boss_pet.png`，由 `A:\CodexHome\pets\deepseek-drool\spritesheet.webp` 的第一行正面帧生成；原 `boss.png` 不删除，运行时缺少宠物资源时作为回退。顶栏“更换总经理”按钮通过 `localStorage` 在两套贴图之间切换。`company_gate.png` 由 `tools/draw_furniture.py` 程序化生成，只保留俯视角下底部中央可见的门楣，和 `LAYOUT.door` 共用入口坐标。
 
 ## Windows 安装与启动
 

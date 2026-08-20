@@ -65,9 +65,11 @@ const SPRITES = (() => {
     upper_front:   ["worker_upper_front.png", 58],
     upper_back:    ["worker_upper_back.png", 58],
     chair:         ["chair_office.png", 36],
+    boss_pet:      ["boss_pet.png", 96, 768, 768],
     boss:          ["boss.png", 68],
     boss_chair:    ["boss_chair.png", 96],
     boss_desk:     ["boss_desk.png", 340],
+    company_gate:  ["company_gate.png", 176, 176, 40],
     desk:          ["desk.png", 165],
     ...Object.fromEntries(DESK_VARIANTS.map((name) => [
       name, [name + ".png", 165, 448, 280],

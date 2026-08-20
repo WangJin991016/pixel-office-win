@@ -173,6 +173,12 @@ class Scene {
     // rug under the boss zone
     SPRITES.draw(ctx, "rug", LAYOUT.boss.x, LAYOUT.boss.deskBottom + 30);
 
+    // The centered entrance is part of the static background so workers can
+    // walk in front of it while retaining the existing door anchor at y=706.
+    if (LAYOUT.door && SPRITES.get("company_gate")) {
+      SPRITES.draw(ctx, "company_gate", LAYOUT.door.x, LAYOUT.H);
+    }
+
     this.built = true;
   }
 

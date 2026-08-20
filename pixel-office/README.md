@@ -2,7 +2,7 @@
 
 > A Windows-only Codex Desktop plugin that turns live subagent activity into a pixel-art office.
 
-Version `0.3.2+codex.20260820` · Windows 10/11 · Community project, not an official OpenAI product
+Version `0.3.3+codex.20260820` · Windows 10/11 · Community project, not an official OpenAI product
 
 ![Pixel Office for Windows](docs/preview.png)
 
@@ -16,6 +16,8 @@ Version `0.3.2+codex.20260820` · Windows 10/11 · Community project, not an off
 - Terminal workers wait in the lounge or pantry and clock out after 30 minutes.
 - Active overflow and delivery queues allocate unique positions instead of stacking workers.
 - The window follows browser-local dawn, morning, noon, afternoon, dusk, and night.
+- The center Boss uses the supplied DeepSeek-drool pet sprite, with the original Boss asset retained as a fallback; a company gate anchors the bottom-center entrance.
+- The top-right “更换总经理” control toggles the pet and classic Boss sprites and persists the browser choice.
 - Clicking a worker opens the task, state, and full observed output history.
 
 Pixel Office observes Codex-created subagents. It does not create or control them.

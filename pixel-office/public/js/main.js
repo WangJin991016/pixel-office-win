@@ -37,7 +37,29 @@
   const drawerTask = document.getElementById("drawer-task");
   const drawerProgress = document.getElementById("drawer-progress");
   const drawerProgressCount = document.getElementById("drawer-progress-count");
+  const bossSpriteButton = document.getElementById("boss-sprite-btn");
   let drawerAgentId = null;
+
+  const BOSS_SPRITE_STORAGE_KEY = "pixel-office.bossSprite";
+  function updateBossSpriteButton() {
+    const pet = Boss.spriteMode !== "classic";
+    bossSpriteButton.textContent = "更换总经理";
+    bossSpriteButton.setAttribute("aria-pressed", String(pet));
+    bossSpriteButton.title = pet
+      ? "当前显示宠物贴图，点击切换为原版总经理"
+      : "当前显示原版贴图，点击切换为宠物总经理";
+  }
+  try {
+    Boss.setSpriteMode(localStorage.getItem(BOSS_SPRITE_STORAGE_KEY) || "pet");
+  } catch {
+    Boss.setSpriteMode("pet");
+  }
+  updateBossSpriteButton();
+  bossSpriteButton.onclick = () => {
+    const mode = Boss.toggleSprite();
+    try { localStorage.setItem(BOSS_SPRITE_STORAGE_KEY, mode); } catch {}
+    updateBossSpriteButton();
+  };
 
   const STATE_LABEL = {
     spawning: "报到中", working: "工作中", delivering: "交付中",

@@ -871,6 +871,18 @@ const Boss = {
   nodCount: 0,
   bubble: new BossBubble(),
   nextShout: 0,
+  spriteMode: "pet",
+
+  setSpriteMode(mode) {
+    if (mode !== "pet" && mode !== "classic") return false;
+    this.spriteMode = mode;
+    return true;
+  },
+
+  toggleSprite() {
+    this.spriteMode = this.spriteMode === "pet" ? "classic" : "pet";
+    return this.spriteMode;
+  },
 
   nod(now) {
     this.nodUntil = now + 620;
@@ -892,7 +904,12 @@ const Boss = {
     const nodding = now < this.nodUntil;
     const dy = nodding ? Math.round(Math.sin((this.nodUntil - now) / 90) * 2 + 2) : 0;
     SPRITES.draw(ctx, "boss_chair", LAYOUT.boss.x, LAYOUT.boss.chairBottom, { dy });
-    SPRITES.draw(ctx, "boss", LAYOUT.boss.x, LAYOUT.boss.bossBottom, { dy });
+    // The pet is the active boss skin; keep the original boss as a safe
+    // fallback for older caches that have not materialized the new asset yet.
+    const bossSprite = this.spriteMode === "classic"
+      ? "boss"
+      : (SPRITES.get("boss_pet") ? "boss_pet" : "boss");
+    SPRITES.draw(ctx, bossSprite, LAYOUT.boss.x, LAYOUT.boss.bossBottom, { dy });
     SPRITES.draw(ctx, "boss_desk", LAYOUT.boss.x, LAYOUT.boss.deskBottom);
     // delivered paper pile on the desk
     ctx.save();

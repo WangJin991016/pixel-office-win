@@ -74,6 +74,10 @@ node <plugin-root>\server\server.mjs --replay <rollout.jsonl> --speed 20
   walks in, sits at a
   free desk, and streams its latest output inside the cloud bubble overhead
   (max 3 lines, auto-scroll; click the employee for the full text panel).
+- The center desk is staffed by the supplied DeepSeek-drool pet Boss sprite,
+  with the original Boss art kept as a runtime fallback; a company gate marks
+  the shared entrance at the bottom center of the office. The top-right
+  “更换总经理” button toggles the pet and classic Boss sprites.
 - On completion the worker walks the documents to the boss desk (center),
   the boss nods, a paper lands on the pile, and the worker waits in one of the
   upper-left or lower-right rest spots, or inside the pantry. The desk is
