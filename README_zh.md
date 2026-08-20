@@ -2,6 +2,10 @@
 
 [English](README.md) | 简体中文
 
+> **Windows/Codex 维护版：**最新插件源码位于 [`pixel-office/`](pixel-office/)，
+> 当前版本为 `0.3.0+codex.20260820`；安装与使用说明见
+> [插件中文文档](pixel-office/README_zh.md)。
+
 在实时像素办公室中查看 Codex 子智能体工作。每个 subagent 都会成为一名
 员工，拥有自己的工位、跟随移动的气泡、任务详情抽屉，以及交付、休息和
 失败动画。
