@@ -6,7 +6,7 @@
 
 **支持平台：** Windows 10 / Windows 11
 
-**项目定位：** Codex Desktop 社区插件，不是 OpenAI 官方产品
+**项目定位：** Codex Desktop 社区插件
 
 ![Pixel Office for Windows](pixel-office/docs/preview.png)
 
