@@ -3,7 +3,7 @@
 [English](README.md) | 简体中文
 
 > **Windows/Codex 维护版：**最新插件源码位于 [`pixel-office/`](pixel-office/)，
-> 当前版本为 `0.3.0+codex.20260820`；安装与使用说明见
+> 当前版本为 `0.3.1+codex.20260820`；安装与使用说明见
 > [插件中文文档](pixel-office/README_zh.md)。
 
 在实时像素办公室中查看 Codex 子智能体工作。每个 subagent 都会成为一名

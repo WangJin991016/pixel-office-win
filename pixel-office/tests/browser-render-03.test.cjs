@@ -80,6 +80,51 @@ async function main() {
       await page.screenshot({ path: path.resolve(screenshotPath), fullPage: true });
     }
 
+    // Load only the renderer/actor scripts on a clean page so the live SSE
+    // office cannot affect the deterministic 20-worker queue probes.
+    const stressPage = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    const baseUrl = new URL(officeUrl);
+    await stressPage.setContent(`<!doctype html><html><body>
+      <script src="${new URL("js/sprites.js", baseUrl)}"></script>
+      <script src="${new URL("js/bubbles.js", baseUrl)}"></script>
+      <script src="${new URL("js/actors.js", baseUrl)}"></script>
+    </body></html>`, { waitUntil: "networkidle" });
+    const stress = await stressPage.evaluate(() => {
+      const coordinateKey = point => `${Math.round(point.x)}:${Math.round(point.y)}`;
+      const activeOffice = new Office();
+      const activeWorkers = Array.from({ length: 20 }, (_, index) =>
+        activeOffice.spawn(`browser-overflow-${index}`, `Overflow ${index}`, true));
+      activeWorkers.forEach(worker => { worker.state = "working"; });
+      const activeTargets = activeWorkers.filter(worker => !worker.desk)
+        .map(worker => worker.waypoints.at(-1) || { x: worker.x, y: worker.y });
+
+      activeOffice.reset();
+      const deliveryOffice = new Office();
+      const deliveryWorkers = Array.from({ length: 20 }, (_, index) =>
+        deliveryOffice.spawn(`browser-delivery-${index}`, `Delivery ${index}`, true));
+      deliveryWorkers.forEach(worker => { worker.state = "working"; });
+      deliveryWorkers.forEach((worker, index) => deliveryOffice.complete(
+        worker.id, index, index, { terminalAt: index, leaveAt: 30000 + index },
+      ));
+      const deliveryTargets = deliveryWorkers.map(worker => worker.waypoints.at(-1));
+      return {
+        activeCount: activeTargets.length,
+        activeUnique: new Set(activeTargets.map(coordinateKey)).size,
+        deliveryCount: deliveryTargets.length,
+        deliveryUnique: new Set(deliveryTargets.map(coordinateKey)).size,
+        deliveryInBounds: deliveryTargets.every(point => point
+          && point.x >= 0 && point.x <= LAYOUT.W && point.y >= 0 && point.y <= LAYOUT.H),
+      };
+    });
+    assert.deepEqual(stress, {
+      activeCount: 12,
+      activeUnique: 12,
+      deliveryCount: 20,
+      deliveryUnique: 20,
+      deliveryInBounds: true,
+    });
+    await stressPage.close();
+
     // Abort one V3 module on a fresh page. All 15 poses must still draw from
     // the complete monolithic fallback; a partial two-layer worker is invalid.
     const fallbackPage = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -118,6 +163,8 @@ async function main() {
       renderCalls: result.calls,
       demoAgents: result.agents.length,
       fallbackPoses: fallback.length,
+      overflowTargets: stress.activeUnique,
+      deliveryTargets: stress.deliveryUnique,
       screenshotPath: screenshotPath ? path.resolve(screenshotPath) : null,
     }));
   } finally {

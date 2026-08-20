@@ -75,7 +75,7 @@ function makeContext(layoutOverride = null) {
   };
   vm.createContext(context);
   const source = fs.readFileSync(ACTORS, "utf8");
-  vm.runInContext(`${source}\nthis.__api = { Office, Worker, deskVariantName };`, context, { filename: ACTORS });
+  vm.runInContext(`${source}\nthis.__api = {\n    Office, Worker, deskVariantName, deliverySlot,\n    activeOverflowCount: () => activeOverflowOwners.size,\n  };`, context, { filename: ACTORS });
   return { ...context.__api, context, layout, workerCalls, drawCalls, ctx };
 }
 
@@ -114,6 +114,54 @@ test("completion/failure release desks immediately and promote overflow", () => 
   assert.equal(workers[1].state, "waiting");
   workers[1].drawBubble(ctx, 0);
   assert.equal(workers[1].bubble.visible, true, "failed red bubble remains visible during wait travel");
+});
+
+test("twenty active workers keep all twelve overflow positions unique and reusable", () => {
+  const realLayout = require(SPRITES_FILE).LAYOUT;
+  const { Office, activeOverflowCount } = makeContext(realLayout);
+  const office = new Office();
+  const workers = Array.from({ length: 20 }, (_, index) =>
+    office.spawn(`overflow-${index}`, `Overflow ${index}`, true));
+  workers.forEach(worker => { worker.state = "working"; });
+
+  const activeTargets = () => [...office.workers.values()]
+    .filter(worker => !worker.desk && ["spawning", "working", "recalled"].includes(worker.state))
+    .map(worker => worker.waypoints.at(-1) || { x: worker.x, y: worker.y });
+  const uniqueTargetCount = targets => new Set(
+    targets.map(point => `${Math.round(point.x)}:${Math.round(point.y)}`),
+  ).size;
+
+  let targets = activeTargets();
+  assert.equal(targets.length, 12);
+  assert.equal(activeOverflowCount(), 12);
+  assert.equal(uniqueTargetCount(targets), targets.length);
+
+  office.fail("overflow-8", 0, 0, { terminalAt: 0, leaveAt: 30000 });
+  const replacement = office.spawn("overflow-replacement", "Replacement", true);
+  replacement.state = "working";
+  targets = activeTargets();
+  assert.equal(targets.length, 12);
+  assert.equal(activeOverflowCount(), 12);
+  assert.equal(uniqueTargetCount(targets), targets.length,
+    "a terminal worker must release its active overflow slot");
+});
+
+test("twenty simultaneous completions receive unique delivery queue targets", () => {
+  const realLayout = require(SPRITES_FILE).LAYOUT;
+  const { Office } = makeContext(realLayout);
+  const office = new Office();
+  const workers = Array.from({ length: 20 }, (_, index) =>
+    office.spawn(`delivery-${index}`, `Delivery ${index}`, true));
+  workers.forEach(worker => { worker.state = "working"; });
+  workers.forEach((worker, index) => {
+    office.complete(worker.id, index, index, { terminalAt: index, leaveAt: 30000 + index });
+  });
+
+  const targets = workers.map(worker => worker.waypoints.at(-1));
+  assert.ok(targets.every(Boolean));
+  assert.equal(new Set(targets.map(point => `${point.x}:${point.y}`)).size, workers.length);
+  assert.ok(targets.every(point =>
+    point.x >= 0 && point.x <= realLayout.W && point.y >= 0 && point.y <= realLayout.H));
 });
 
 test("waiting uses the absolute 29:59/30:00 deadline", () => {
@@ -283,8 +331,9 @@ test("legacy terminal snapshots are archived without a visible worker", () => {
 });
 
 test("terminal snapshot hydration restores directly at its stable wait spot", () => {
-  const { Worker } = makeContext();
+  const { Worker, activeOverflowCount } = makeContext();
   const worker = new Worker("snapshot-wait", "Snapshot", -1, { appearance: appearance(1) });
+  assert.equal(activeOverflowCount(), 1);
   worker.hydrateTerminal("completed", 1000, 0, {
     terminalAt: 900, leaveAt: 30000, appearance: appearance(1),
   });
@@ -293,6 +342,7 @@ test("terminal snapshot hydration restores directly at its stable wait spot", ()
   assert.equal(worker.x, target.x);
   assert.equal(worker.y, target.y);
   assert.equal(worker.waypoints.length, 0);
+  assert.equal(activeOverflowCount(), 0, "terminal hydration releases any active overflow slot");
 });
 
 test("recall cancels delivery, waiting, clockout walk, and fade while preserving appearance", () => {

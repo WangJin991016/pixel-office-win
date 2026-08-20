@@ -4,7 +4,7 @@ English | [简体中文](README_zh.md)
 
 > **Windows/Codex release:** the maintained plugin source is in
 > [`pixel-office/`](pixel-office/). See its [installation and usage guide](pixel-office/README.md)
-> for version `0.3.0+codex.20260820`.
+> for version `0.3.1+codex.20260820`.
 
 Watch Codex subagents work in a live pixel-art office. Each subagent becomes
 an employee with a desk, a moving speech bubble, a task drawer, delivery and

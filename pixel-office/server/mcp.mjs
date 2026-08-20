@@ -119,7 +119,7 @@ async function handle(msg) {
         result: {
           protocolVersion: (params && params.protocolVersion) || "2024-11-05",
           capabilities: { tools: {} },
-          serverInfo: { name: "pixel-office", version: "0.3.0" },
+          serverInfo: { name: "pixel-office", version: "0.3.1" },
         },
       });
       return;

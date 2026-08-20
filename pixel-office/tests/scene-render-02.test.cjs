@@ -12,6 +12,8 @@ const {
   SPRITES,
   WINDOW_PHASES,
   overflowCoordinate,
+  ACTIVE_OVERFLOW_SPOTS,
+  activeOverflowCoordinate,
 } = require("../public/js/sprites.js");
 const {
   classifyWindowScene,
@@ -118,6 +120,20 @@ for (const spot of LAYOUT.overflowSpots) {
 assert.equal(new Set(LAYOUT.overflowSpots.map(spot => `${spot.x}:${spot.y}`)).size, 12);
 assert.equal(LAYOUT.overflowSpots.filter(spot => spot.zone === "upper_left").length, 6);
 assert.equal(LAYOUT.overflowSpots.filter(spot => spot.zone === "lower_right").length, 6);
+assert.strictEqual(LAYOUT.activeOverflowSpots, ACTIVE_OVERFLOW_SPOTS);
+assert.equal(ACTIVE_OVERFLOW_SPOTS.length, 16);
+for (let first = 0; first < ACTIVE_OVERFLOW_SPOTS.length; first++) {
+  for (let second = first + 1; second < ACTIVE_OVERFLOW_SPOTS.length; second++) {
+    const a = ACTIVE_OVERFLOW_SPOTS[first];
+    const b = ACTIVE_OVERFLOW_SPOTS[second];
+    assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= 30);
+  }
+}
+const activeOverflowProbe = Array.from({ length: 40 }, (_, index) =>
+  activeOverflowCoordinate(index));
+assert.equal(new Set(activeOverflowProbe.map(spot => `${spot.x}:${spot.y}`)).size, 40);
+assert.ok(activeOverflowProbe.every(spot =>
+  spot.x >= 0 && spot.x <= LAYOUT.W && spot.y >= 0 && spot.y <= LAYOUT.H));
 
 for (const phase of WINDOW_PHASES) {
   assert.ok(SPRITE_MANIFEST["window_" + phase]);

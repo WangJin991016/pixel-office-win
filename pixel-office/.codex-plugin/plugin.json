@@ -1,6 +1,6 @@
 {
   "name": "pixel-office",
-  "version": "0.3.0+codex.20260820",
+  "version": "0.3.1+codex.20260820",
   "description": "Watch varied Codex subagents work in a live pixel office with 729 three-part appearances, unique desks, time-aware windows, waiting areas, and clock-out animations.",
   "author": {
     "name": "frankshane"

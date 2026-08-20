@@ -306,6 +306,24 @@ function overflowCoordinate(index) {
 const OVERFLOW_SPOTS = Object.freeze(
   OVERFLOW_PATTERN.map(spot => Object.freeze({ ...spot })),
 );
+const ACTIVE_OVERFLOW_PER_ROW = 16;
+function activeOverflowCoordinate(index) {
+  const n = Number.isFinite(Number(index)) ? Math.max(0, Math.trunc(Number(index))) : 0;
+  const row = Math.floor(n / ACTIVE_OVERFLOW_PER_ROW);
+  const slot = n % ACTIVE_OVERFLOW_PER_ROW;
+  const side = slot % 2 === 0 ? -1 : 1;
+  const column = Math.floor(slot / 2);
+  return {
+    x: 640 + side * (46 + column * 30),
+    y: 706 - row * 34,
+    kind: "briefcase",
+    zone: "entrance",
+  };
+}
+const ACTIVE_OVERFLOW_SPOTS = Object.freeze(
+  Array.from({ length: ACTIVE_OVERFLOW_PER_ROW }, (_, index) =>
+    Object.freeze(activeOverflowCoordinate(index))),
+);
 
 /* office layout (logical 1280x720) */
 const LAYOUT = {
@@ -319,6 +337,7 @@ const LAYOUT = {
     { x: 626, y: 522 }, { x: 654, y: 562 }, { x: 626, y: 602 },
     { x: 654, y: 640 }, { x: 626, y: 672 },
   ],
+  deliveryLaneSpacing: 90,
   door: { x: 640, y: 706 },
   aisleX: 640,
   chaise: { x: 1160, y: 712 },
@@ -339,6 +358,10 @@ const LAYOUT = {
   },
   overflowSpots: OVERFLOW_SPOTS,
   waitOverflowSpots: OVERFLOW_SPOTS,
+  activeOverflow: {
+    spots: ACTIVE_OVERFLOW_SPOTS, coordinate: activeOverflowCoordinate,
+  },
+  activeOverflowSpots: ACTIVE_OVERFLOW_SPOTS,
   overflowCoordinate,
   // rest corner: chaise, floor cushions, then coffee spots by the water cooler
   restSpots: [
@@ -385,6 +408,8 @@ const exported = {
   PANTRY_WAIT_SPOTS,
   OVERFLOW_SPOTS,
   overflowCoordinate,
+  ACTIVE_OVERFLOW_SPOTS,
+  activeOverflowCoordinate,
 };
 
 if (typeof globalThis !== "undefined") Object.assign(globalThis, exported);

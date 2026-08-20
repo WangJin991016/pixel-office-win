@@ -1,6 +1,6 @@
 # Pixel Office · 开发过程与架构交接文档
 
-> 版本：0.3.0+codex.20260820 · 最后更新：2026-08-20
+> 版本：0.3.1+codex.20260820 · 最后更新：2026-08-20
 > 读者：接手本插件开发/维护的工程师
 > 配套阅读：[README.md](../README.md)（用户视角的安装与使用）
 
@@ -289,14 +289,16 @@ spawning(入口走入) → working(坐椅打字 bob)
 - **寻路**：到工位使用中央过道；离开工位则按等候位编号分配独立通道。
   左上路线从桌间安全过道上行，茶水间路线沿右边缘到入口后水平入门；固定与
   溢出路线都不得穿桌。正面、背面和侧面走路均为两帧交替。
-- **交付队列**：`deliveryQueue` + `queueSlots[8]`，多人完成时在过道排队，
-  只有队首交付。
+- **交付队列**：`deliveryQueue` 的前 8 人使用中央 `queueSlots[8]`；更多员工
+  按左右交替的平行队列继续扩展，每个队列索引都有唯一坐标，只有队首交付。
 - **等候位分配**：休息区 6 位（左上 3 位、右下 3 位）+ 茶水间 6 位，按
   `agent id + terminalAt` 稳定分流并优先取空位；12 位满后继续在左上/右下
   交错使用溢出位，绝不回占工位或堵住茶水间入口。
   召回或离场时必须释放位置。
 - **工位递补**：完成/失败一收到即释放 desk，并立即把入口队列中的下一人
   促进到空位；物理工位永久绑定 `deskVariant 0..7`，不因员工或刷新重排。
+- **入口溢出位**：无工位的活跃员工独占一个 `activeOverflow` 槽；分配工位、
+  进入终态或离场时立即释放。预设槽满后按入口队列行继续生成，不复用坐标。
 - **离场清理**：`offstage` 后从可见员工集合、交付队列、等候位、点击区域和
   当前详情抽屉中同步清除；顶栏人数只统计仍在动画中的员工。
 - **气泡跟随员工当前 sprite**：锚点由当前姿态的底部坐标和精灵高度计算，
@@ -361,7 +363,7 @@ pixel-office/
    `[marketplaces.local-dev] source_type="local" source="..."` +
    `[plugins."pixel-office@local-dev"] enabled=true`。
 3. `codex plugin add pixel-office@local-dev` → 按清单版本物化到
-   `~/.codex/plugins/cache/local-dev/pixel-office/0.3.0+codex.20260820/`。
+   `~/.codex/plugins/cache/local-dev/pixel-office/0.3.1+codex.20260820/`。
 4. 安装 launchd 守护。
 
 **关键坑：插件缓存必须是实体目录**。若把缓存换成软链，`codex plugin list`

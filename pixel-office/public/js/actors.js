@@ -20,6 +20,7 @@ const deliveryQueue = [];       // worker ids waiting at the boss
 let deliveredPile = 0;          // paper stack on the boss desk
 const restSpotOwners = new Map(); // spotIndex -> workerId
 const waitSpotOwners = new Map();  // area:spot -> worker id
+const activeOverflowOwners = new Map(); // entrance slot index -> active worker id
 
 function hashString(value) {
   let hash = 0;
@@ -206,11 +207,69 @@ function releaseRestSpot(id) {
 
 function corridorY(deskY) { return deskY + 20; }
 
+function activeOverflowCoordinate(index) {
+  const n = Number.isFinite(Number(index)) ? Math.max(0, Math.trunc(Number(index))) : 0;
+  const configured = Array.isArray(LAYOUT.activeOverflowSpots)
+    ? LAYOUT.activeOverflowSpots : [];
+  if (configured[n]) return { ...configured[n], ...spotPosition(configured[n]) };
+  if (typeof LAYOUT.activeOverflow?.coordinate === "function") {
+    const point = LAYOUT.activeOverflow.coordinate(n);
+    return { ...point, ...spotPosition(point) };
+  }
+  const perRow = 16;
+  const row = Math.floor(n / perRow);
+  const slot = n % perRow;
+  const side = slot % 2 === 0 ? -1 : 1;
+  const column = Math.floor(slot / 2);
+  return {
+    x: LAYOUT.door.x + side * (46 + column * 30),
+    y: LAYOUT.door.y - row * 34,
+    kind: "briefcase", zone: "entrance",
+  };
+}
+
 function overflowSpot(id) {
-  let hash = 0;
-  for (const ch of String(id)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  const slot = hash % 5;
-  return { x: LAYOUT.door.x - 180 + slot * 46, y: LAYOUT.door.y - 6 };
+  for (const [index, owner] of activeOverflowOwners) {
+    if (owner === id) return { idx: index, ...activeOverflowCoordinate(index) };
+  }
+  const configuredCount = Math.max(1,
+    Array.isArray(LAYOUT.activeOverflowSpots) ? LAYOUT.activeOverflowSpots.length : 8);
+  const start = hashString(id) % configuredCount;
+  let index = -1;
+  for (let offset = 0; offset < configuredCount; offset++) {
+    const candidate = (start + offset) % configuredCount;
+    if (!activeOverflowOwners.has(candidate)) {
+      index = candidate;
+      break;
+    }
+  }
+  if (index < 0) {
+    index = configuredCount;
+    while (activeOverflowOwners.has(index)) index++;
+  }
+  activeOverflowOwners.set(index, id);
+  return { idx: index, ...activeOverflowCoordinate(index) };
+}
+
+function releaseOverflowSpot(id) {
+  for (const [index, owner] of activeOverflowOwners) {
+    if (owner === id) activeOverflowOwners.delete(index);
+  }
+}
+
+function deliverySlot(index) {
+  const configured = Array.isArray(LAYOUT.queueSlots) && LAYOUT.queueSlots.length
+    ? LAYOUT.queueSlots : [{ x: LAYOUT.door.x, y: LAYOUT.door.y - 42 }];
+  const n = Number.isFinite(Number(index)) ? Math.max(0, Math.trunc(Number(index))) : 0;
+  if (n < configured.length) return spotPosition(configured[n]);
+  const overflowIndex = n - configured.length;
+  const row = overflowIndex % configured.length;
+  const lane = Math.floor(overflowIndex / configured.length);
+  const side = lane % 2 === 0 ? -1 : 1;
+  const distance = (Math.floor(lane / 2) + 1)
+    * (Number(LAYOUT.deliveryLaneSpacing) || 90);
+  const base = spotPosition(configured[row]);
+  return { x: base.x + side * distance, y: base.y };
 }
 
 class Worker {
@@ -436,11 +495,13 @@ class Worker {
     this.setServerData(meta);
     if (["waiting", "clockout_walk", "clockout_fade", "offstage"].includes(this.state)) return;
     if (["delivering", "resting", "rest_walk"].includes(this.state)) return;
+    releaseOverflowSpot(this.id);
     this.terminalKind = "completed";
     this.terminalAt = toWallTime(meta.terminalAt) ?? this.terminalAt ?? wallNow;
     this.state = "delivering";
-    this.waypoints = this.pathTo(LAYOUT.queueSlots[0].x, LAYOUT.queueSlots[0].y);
     if (!deliveryQueue.includes(this.id)) deliveryQueue.push(this.id);
+    const slot = deliverySlot(deliveryQueue.indexOf(this.id));
+    this.waypoints = this.pathTo(slot.x, slot.y);
   }
 
   onRecalled(meta = {}, wallNow = Date.now(), animNow = wallNow) {
@@ -471,6 +532,7 @@ class Worker {
     }
     if (["waiting", "clockout_walk", "clockout_fade", "offstage"].includes(this.state)) return;
     this.setServerData(meta);
+    releaseOverflowSpot(this.id);
     removeFromQueues(this.id);
     this.presentUntil = 0;
     this.throwAnim = null;
@@ -481,6 +543,7 @@ class Worker {
   }
 
   beginTerminalWait(wallNow, animNow) {
+    releaseOverflowSpot(this.id);
     this.state = "waiting";
     this.zzz = [];
     this.throwAnim = null;
@@ -567,7 +630,7 @@ class Worker {
           this.state = "recalled";
           break;
         }
-        const slot = LAYOUT.queueSlots[Math.min(qi, LAYOUT.queueSlots.length - 1)];
+        const slot = deliverySlot(qi);
         if (Math.abs(this.x - slot.x) > 2 || Math.abs(this.y - slot.y) > 2) {
           this.waypoints = [{ x: slot.x, y: slot.y }];
           break;
@@ -932,6 +995,7 @@ class Office {
 
   assignDesk(w) {
     if (!w || w.desk || !this.freeDesks.length) return false;
+    releaseOverflowSpot(w.id);
     const deskIdx = this.freeDesks.shift();
     w.deskIdx = deskIdx;
     w.desk = LAYOUT.desks[deskIdx];
@@ -1022,6 +1086,7 @@ class Office {
     deliveryQueue.length = 0;
     restSpotOwners.clear();
     waitSpotOwners.clear();
+    activeOverflowOwners.clear();
     this.archived.clear();
     deliveredPile = 0;
   }
@@ -1044,6 +1109,7 @@ class Office {
       ? "offstage" : (w.terminalKind === "failed" ? "failed" : "completed");
     const record = this.recordFromWorker(w, terminalState);
     removeFromQueues(w.id);
+    releaseOverflowSpot(w.id);
     this.releaseDesk(w.id, false);
     this.workers.delete(w.id);
     this.archived.set(w.id, record);

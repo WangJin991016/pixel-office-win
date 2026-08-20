@@ -153,7 +153,7 @@ Pixel Office reads recent `rollout-*.jsonl` files under
 The bridge makes that content available through `/api/state` and `/events`
 without authentication, so treat port `8791` as sensitive.
 
-Version `0.3.0+codex.20260820` binds the bridge to `127.0.0.1` by default.
+Version `0.3.1+codex.20260820` binds the bridge to `127.0.0.1` by default.
 Do not port-forward it or expose it to the internet: the local endpoints are
 still unauthenticated and may contain task text and subagent output.
 
