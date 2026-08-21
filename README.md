@@ -58,7 +58,7 @@ Codex Desktop 会尝试在右侧浏览器区域打开页面。如果没有自动
 Invoke-RestMethod http://127.0.0.1:8791/api/state
 ```
 
-## 代理什么时候离开
+## 子代理工作流程
 
 ```text
 进入办公室
@@ -145,7 +145,7 @@ codex plugin marketplace remove pixel-office-win
 
 新版 Codex 可能会加密 `spawn_agent.message`。遇到这种情况，页面会退回显示 `task_name` 作为主任务文本。
 
-## 项目怎么运行
+## 项目运行模式
 
 ```text
 Codex rollout JSONL（只读）
