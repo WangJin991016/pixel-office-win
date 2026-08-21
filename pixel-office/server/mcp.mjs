@@ -19,6 +19,8 @@ const BRIDGE = path.join(__dirname, "server.mjs");
 const PORT = Number(process.env.PIXEL_OFFICE_PORT || 8791);
 const HOST = process.env.PIXEL_OFFICE_HOST || "127.0.0.1";
 const BASE = `http://${HOST}:${PORT}`;
+let bridgeStartPromise = null;
+let bridgeWatchdog = null;
 
 function bridgeUp() {
   return new Promise((resolve) => {
@@ -31,22 +33,44 @@ function bridgeUp() {
   });
 }
 
-async function ensureBridge() {
-  if (await bridgeUp()) return { started: false, running: true };
-  const child = spawn(process.execPath, [
-    BRIDGE, "--host", HOST, "--port", String(PORT),
-  ], {
-    detached: true,
-    stdio: "ignore",
-    env: { ...process.env },
+function ensureBridge() {
+  if (bridgeStartPromise) return bridgeStartPromise;
+  bridgeStartPromise = (async () => {
+    if (await bridgeUp()) return { started: false, running: true };
+    let child;
+    try {
+      child = spawn(process.execPath, [
+        BRIDGE, "--host", HOST, "--port", String(PORT),
+      ], {
+        detached: true,
+        windowsHide: true,
+        stdio: "ignore",
+        env: { ...process.env },
+      });
+      // An asynchronous spawn error must not become an unhandled exception.
+      child.on("error", () => {});
+      child.unref();
+    } catch {
+      return { started: true, running: false };
+    }
+    // Give the detached child a moment to bind.
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 250));
+      if (await bridgeUp()) return { started: true, running: true };
+    }
+    return { started: true, running: false };
+  })().finally(() => {
+    bridgeStartPromise = null;
   });
-  child.unref();
-  // give it a moment to bind
-  for (let i = 0; i < 20; i++) {
-    await new Promise(r => setTimeout(r, 250));
-    if (await bridgeUp()) return { started: true, running: true };
-  }
-  return { started: true, running: false };
+  return bridgeStartPromise;
+}
+
+function startBridgeWatchdog() {
+  if (bridgeWatchdog) return;
+  bridgeWatchdog = setInterval(() => {
+    void ensureBridge().catch(() => {});
+  }, 5000);
+  bridgeWatchdog.unref?.();
 }
 
 function fetchState() {
@@ -162,7 +186,11 @@ process.stdin.on("data", async (chunk) => {
   }
 });
 
-// Warm-up: bring the bridge up as soon as Codex starts this MCP server.
+// Warm-up: bring the bridge up as soon as Codex starts this MCP server, then
+// recover it if the detached Windows child is later terminated.
+startBridgeWatchdog();
 ensureBridge().then(st => {
   process.stderr.write(`[pixel-office] mcp ready; bridge running=${st.running} started=${st.started} url=${BASE}/\n`);
+}).catch(() => {
+  process.stderr.write(`[pixel-office] mcp bridge start failed; watchdog will retry url=${BASE}/\n`);
 });

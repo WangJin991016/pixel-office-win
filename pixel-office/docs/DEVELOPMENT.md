@@ -44,7 +44,7 @@ codex plugin marketplace add WangJin991016/pixel-office-win --ref main
 codex plugin add pixel-office@pixel-office-win
 ```
 
-插件的 `.mcp.json` 直接用 `node` 启动 `server/mcp.mjs`。MCP 在任务加载时检查 `127.0.0.1:8791`，仅在服务未运行时拉起桥接。
+插件的 `.mcp.json` 直接用 `node` 启动 `server/mcp.mjs`。MCP 在任务加载时检查 `127.0.0.1:8791`，仅在服务未运行时拉起桥接；启动过程有并发锁，MCP 进程存活期间还会每 5 秒做一次健康检查，桥接退出后自动重启。
 
 `skills/pixel-office/SKILL.md` 在观察到 subagent 时调用 `pixel_office_status`，再请求 Codex Desktop 宿主工具打开右侧页面。宿主能力不可用时使用直接 URL。
 
